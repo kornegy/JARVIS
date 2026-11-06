@@ -1,14 +1,13 @@
 import XCTest
 
-/// UI-тест запуска: приложение стартует, показывает статус, кнопка питания меняет состояние.
-/// Данные UI-тестов пишутся во временную папку (`--ui-testing`), автозапуск не трогается.
+/// UI-тесты: запуск, включение/выключение, текстовая команда.
+/// Данные UI-тестов пишутся во временную папку (`--ui-testing`), автозапуск и горячая клавиша
+/// не трогаются; режим по умолчанию — Push-to-Talk, поэтому микрофон в тестах не используется.
 final class LaunchUITests: XCTestCase {
     @MainActor
     func testLaunchShowsStatusAndPowerButtonTogglesAssistant() throws {
         continueAfterFailure = false
-        let app = XCUIApplication()
-        app.launchArguments = ["--ui-testing", "--show-main-window"]
-        app.launch()
+        let app = launchApp()
         defer { app.terminate() }
 
         let status = app.staticTexts["status.title"]
@@ -27,9 +26,9 @@ final class LaunchUITests: XCTestCase {
         let afterEnable = Self.text(of: status)
         XCTAssertTrue(enabled, "Статус после включения: \(afterEnable)")
 
-        let voiceNote = app.staticTexts["voice.unavailable"]
-        let noteShown = voiceNote.waitForExistence(timeout: 5)
-        XCTAssertTrue(noteShown, "Нет честного сообщения о том, что голос ещё не реализован")
+        let hint = app.staticTexts["voice.hint"]
+        let hintShown = hint.waitForExistence(timeout: 5)
+        XCTAssertTrue(hintShown, "Нет подсказки, как обратиться к ассистенту")
 
         let microphone = app.descendants(matching: .any)["microphone.indicator"].firstMatch.exists
         XCTAssertTrue(microphone, "Нет индикатора микрофона")
@@ -38,6 +37,42 @@ final class LaunchUITests: XCTestCase {
         let disabled = Self.wait(timeout: 10) { Self.text(of: status) == "Выключен" }
         let afterDisable = Self.text(of: status)
         XCTAssertTrue(disabled, "Статус после выключения: \(afterDisable)")
+    }
+
+    @MainActor
+    func testTypedCommandGetsAnswer() throws {
+        continueAfterFailure = false
+        let app = launchApp()
+        defer { app.terminate() }
+
+        let power = app.buttons["assistant.power"]
+        let powerExists = power.waitForExistence(timeout: 30)
+        XCTAssertTrue(powerExists, "Нет кнопки включения")
+        power.click()
+
+        let field = app.textFields["command.field"]
+        let fieldExists = field.waitForExistence(timeout: 10)
+        XCTAssertTrue(fieldExists, "Нет поля для текстовой команды")
+        let fieldEnabled = Self.wait(timeout: 10) { field.isEnabled }
+        XCTAssertTrue(fieldEnabled, "Поле команды недоступно после включения")
+
+        field.click()
+        field.typeText("what time is it")
+        field.typeKey(.return, modifierFlags: [])
+
+        let reply = app.staticTexts["assistant.reply"]
+        let replied = reply.waitForExistence(timeout: 10)
+        XCTAssertTrue(replied, "Нет ответа на текстовую команду")
+        let replyText = Self.text(of: reply)
+        XCTAssertTrue(replyText.hasPrefix("Сейчас"), "Неожиданный ответ: \(replyText)")
+    }
+
+    @MainActor
+    private func launchApp() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-testing", "--show-main-window"]
+        app.launch()
+        return app
     }
 
     @MainActor

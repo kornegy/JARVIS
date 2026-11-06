@@ -3,9 +3,12 @@
 <plist version="1.0">
 <!--
   Entitlements добавляются только вместе с функцией, которой они нужны (docs/Security.md §10):
-  Phase 2 — com.apple.security.device.audio-input (микрофон при Hardened Runtime),
-  Phase 3 — com.apple.security.automation.apple-events (управление приложениями).
+  Phase 2 — com.apple.security.device.audio-input: микрофон при Hardened Runtime (включено);
+  Phase 3 — com.apple.security.automation.apple-events: управление приложениями.
   App Sandbox сознательно не включён — обоснование в docs/Security.md.
 -->
-<dict/>
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
 </plist>

@@ -13,6 +13,8 @@ extension ActionIdentifier {
         case "microphone.resume": "Микрофон снят с паузы"
         case "privacy_mode.enable": "Privacy Mode включён"
         case "privacy_mode.disable": "Privacy Mode выключен"
+        case "info.time": "Сказал время"
+        case "info.date": "Сказал дату"
         default: rawValue
         }
     }
