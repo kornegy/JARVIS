@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "JarvisCore", targets: ["JarvisCore"]),
         .library(name: "JarvisSettings", targets: ["JarvisSettings"]),
         .library(name: "JarvisTools", targets: ["JarvisTools"]),
+        .library(name: "JarvisAI", targets: ["JarvisAI"]),
     ],
     targets: [
         // Ядро: состояния ассистента, приватные типы, логгер, хранилище, журнал аудита.
@@ -25,9 +26,14 @@ let package = Package(
         // Инструменты: описание действий, реестр, валидация аргументов, политика подтверждения.
         .target(name: "JarvisTools", dependencies: ["JarvisCore"]),
 
+        // Язык: нормализация текста, фраза-активатор, разбор команд по правилам, ответы с характером.
+        // Не зависит от платформы и сети.
+        .target(name: "JarvisAI"),
+
         .testTarget(name: "JarvisCoreTests", dependencies: ["JarvisCore"]),
         .testTarget(name: "JarvisSettingsTests", dependencies: ["JarvisSettings", "JarvisCore"]),
         .testTarget(name: "JarvisToolsTests", dependencies: ["JarvisTools", "JarvisCore"]),
+        .testTarget(name: "JarvisAITests", dependencies: ["JarvisAI"]),
     ],
     swiftLanguageModes: [.v6]
 )
