@@ -14,6 +14,7 @@ let package = Package(
         .library(name: "JarvisSettings", targets: ["JarvisSettings"]),
         .library(name: "JarvisTools", targets: ["JarvisTools"]),
         .library(name: "JarvisAI", targets: ["JarvisAI"]),
+        .library(name: "JarvisAssistant", targets: ["JarvisAssistant"]),
     ],
     targets: [
         // Ядро: состояния ассистента, приватные типы, логгер, хранилище, журнал аудита.
@@ -30,10 +31,21 @@ let package = Package(
         // Не зависит от платформы и сети.
         .target(name: "JarvisAI"),
 
+        // Оркестратор: сборка команды из речи, обработка, ответ, машина состояний.
+        // Системные части (микрофон, распознавание, синтез) — через протоколы.
+        .target(
+            name: "JarvisAssistant",
+            dependencies: ["JarvisCore", "JarvisSettings", "JarvisTools", "JarvisAI"]
+        ),
+
         .testTarget(name: "JarvisCoreTests", dependencies: ["JarvisCore"]),
         .testTarget(name: "JarvisSettingsTests", dependencies: ["JarvisSettings", "JarvisCore"]),
         .testTarget(name: "JarvisToolsTests", dependencies: ["JarvisTools", "JarvisCore"]),
         .testTarget(name: "JarvisAITests", dependencies: ["JarvisAI"]),
+        .testTarget(
+            name: "JarvisAssistantTests",
+            dependencies: ["JarvisAssistant", "JarvisAI", "JarvisCore", "JarvisSettings", "JarvisTools"]
+        ),
     ],
     swiftLanguageModes: [.v6]
 )

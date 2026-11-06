@@ -20,6 +20,7 @@ public enum FailureCode: String, Codable, Sendable, CaseIterable {
     case permissionDenied
     case speechModelUnavailable
     case languageNotSupportedOnDevice
+    case speechRecognitionNotAuthorized
     case aiProviderUnavailable
     case internalError
 
@@ -30,6 +31,7 @@ public enum FailureCode: String, Codable, Sendable, CaseIterable {
         case .permissionDenied: "Нет нужного разрешения macOS"
         case .speechModelUnavailable: "Модель распознавания речи не загружена"
         case .languageNotSupportedOnDevice: "Язык не поддерживается для локального распознавания"
+        case .speechRecognitionNotAuthorized: "Нет разрешения на распознавание речи"
         case .aiProviderUnavailable: "AI-провайдер недоступен"
         case .internalError: "Внутренняя ошибка"
         }

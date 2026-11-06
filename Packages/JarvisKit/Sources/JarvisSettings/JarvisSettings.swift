@@ -92,7 +92,27 @@ public struct GeneralSettings: Codable, Equatable, Sendable {
     }
 }
 
+/// Горячая клавиша Push-to-Talk: удерживайте и говорите.
+public enum PushToTalkShortcut: String, Codable, Sendable, CaseIterable {
+    case controlOptionSpace
+    case optionSpace
+    case shiftOptionSpace
+    case commandOptionJ
+
+    public var displayName: String {
+        switch self {
+        case .controlOptionSpace: "⌃⌥ Пробел"
+        case .optionSpace: "⌥ Пробел"
+        case .shiftOptionSpace: "⇧⌥ Пробел"
+        case .commandOptionJ: "⌘⌥ J"
+        }
+    }
+}
+
 public struct VoiceSettings: Codable, Equatable, Sendable {
+    /// Языки, для которых есть правила разбора команд и ответы.
+    public static let supportedRecognitionLocales = ["ru_RU", "en_US"]
+
     /// По умолчанию — Push-to-Talk: постоянное прослушивание включается осознанно.
     public var listeningMode: ListeningMode = .pushToTalk
     /// Фразы-активаторы (сравниваются без учёта регистра и пунктуации).
@@ -111,12 +131,19 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
     public var speechRate = 0.5
     /// Громкость речи 0…1.
     public var speechVolume = 1.0
+    /// Отвечать голосом (на голосовые команды). Текст ответа показывается всегда.
+    public var speakResponses = true
+    /// Короткие звуки начала и конца прослушивания.
+    public var playSounds = true
+    /// Горячая клавиша Push-to-Talk.
+    public var pushToTalkShortcut: PushToTalkShortcut = .controlOptionSpace
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case listeningMode, wakePhrases, recognitionLocale, inputDeviceUID, microphoneSensitivity
         case endOfSpeechSilenceSeconds, voiceIdentifier, speechRate, speechVolume
+        case speakResponses, playSounds, pushToTalkShortcut
     }
 
     public init(from decoder: any Decoder) throws {
@@ -130,6 +157,14 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
         voiceIdentifier = try container.decodeIfPresent(String.self, forKey: .voiceIdentifier)
         speechRate = try container.decodeIfPresent(Double.self, forKey: .speechRate) ?? speechRate
         speechVolume = try container.decodeIfPresent(Double.self, forKey: .speechVolume) ?? speechVolume
+        speakResponses = try container.decodeIfPresent(Bool.self, forKey: .speakResponses) ?? speakResponses
+        playSounds = try container.decodeIfPresent(Bool.self, forKey: .playSounds) ?? playSounds
+        pushToTalkShortcut = try container.decodeIfPresent(PushToTalkShortcut.self, forKey: .pushToTalkShortcut) ?? pushToTalkShortcut
+    }
+
+    /// Локаль распознавания; неизвестное значение заменяется русским.
+    public var locale: Locale {
+        Locale(identifier: VoiceSettings.supportedRecognitionLocales.contains(recognitionLocale) ? recognitionLocale : "ru_RU")
     }
 }
 
