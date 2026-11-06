@@ -146,7 +146,7 @@ JARVIS **не пытается обходить** отказ — сообщае�
 
 * Hardened Runtime включён во всех конфигурациях.
 * Entitlements минимальны и добавляются **вместе с функцией**, которой они нужны:
-  `com.apple.security.device.audio-input` (Phase 2), `com.apple.security.automation.apple-events`
+  `com.apple.security.device.audio-input` (включено в Phase 2), `com.apple.security.automation.apple-events`
   (Phase 3). Не используются: `disable-library-validation`, `allow-jit`,
   `allow-unsigned-executable-memory`, `get-task-allow` в Release.
 * App Sandbox **не включён** осознанно: управление окнами других приложений через

@@ -35,6 +35,7 @@ struct JarvisVoiceTests {
     }
 
     @Test("Скорость речи: 0,5 — обычная, края ограничены")
+    @MainActor
     func speechRate() {
         #expect(SystemSpeechSynthesizer.rate(for: 0.5) == 0.5)
         #expect(SystemSpeechSynthesizer.rate(for: -1) == 0.35)

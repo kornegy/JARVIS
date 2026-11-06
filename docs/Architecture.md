@@ -182,14 +182,16 @@ CloudKit private database (данные пользователя в его iClou
 | `JarvisCore` | состояния ассистента и машина переходов, `Utterance`/`Sensitive`, privacy-safe логгер, атомарное хранилище и резервные копии, пути данных, журнал аудита и общие типы (источник команды, уровень риска); протоколы голосовых движков добавятся в Phase 2 | — | 1 |
 | `JarvisSettings` | модель настроек, значения по умолчанию, хранилище, миграции схемы | Core | 1 |
 | `JarvisTools` | `Tool`, `ToolDescriptor`, `ToolRegistry`, валидация аргументов, политика подтверждения | Core | 1 (интерфейсы), 3 (исполнитель) |
-| `JarvisAI` | `RuleIntentParser`, `HybridRouter`, провайдеры (Apple FM, OpenAI-совместимый, Anthropic), `PromptBuilder`, личность | Core, Tools, Settings | 2, 4 |
-| `JarvisVoice` (macOS) | AudioCapture, VAD, wake word, STT, TTS, PTT-хоткей | Core | 2 |
+| `JarvisAI` | нормализация текста, `WakePhraseMatcher`, `RuleIntentParser`, `ResponseComposer` (личность); в Phase 4 — `HybridRouter` и LLM-провайдеры | — | 2 ✅, 4 |
+| `JarvisAssistant` | App Core: протоколы движков, `UtteranceAssembler`, `CommandProcessor`, встроенные инструменты, `AssistantController` | Core, Settings, Tools, AI | 2 ✅ |
+| `JarvisVoice` (macOS) | захват звука, `SpeechAnalyzer` + `SpeechDetector`, модели языков, TTS, разрешения, PTT-хоткей, список микрофонов | Core, Settings, Assistant | 2 ✅ |
 | `JarvisMac` (macOS) | macOS Integration Layer: адаптеры приложений, файлов, системы, браузера, почты, календаря; Permission Manager; Keychain | Core, Tools | 3 |
 | `JarvisMemory` | краткосрочная/долгосрочная память, привычки, пользовательские инструкции | Core | 4 |
 | `JarvisAutomation` | сценарии, триггеры, планировщик, история выполнений | Core, Tools, Memory | 4 |
 | `App` (Xcode target) | UI, composition root, Login Item, (Phase 6) Sparkle | всё выше | 1+ |
 
-Граф зависимостей ациклический: `Core ← {Settings, Tools, Voice, Memory} ← {AI, Mac, Automation} ← App`.
+Граф зависимостей ациклический: `Core ← {Settings, Tools, AI} ← Assistant ← Voice ← App`
+(в Phase 3–4 добавятся `Mac`, `Memory`, `Automation` по той же схеме).
 
 Модули, которые в таблице помечены будущими фазами, **не создаются заранее пустыми** —
 появляются вместе с реальной реализацией.

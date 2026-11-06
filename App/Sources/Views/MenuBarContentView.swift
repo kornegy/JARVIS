@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import JarvisAssistant
 
 /// Панель, которая открывается по клику на иконку JARVIS в строке меню.
 struct MenuBarContentView: View {

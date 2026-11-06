@@ -1,4 +1,5 @@
 import SwiftUI
+import JarvisAssistant
 import JarvisCore
 
 /// Иконка и название текущего состояния + имя ассистента.

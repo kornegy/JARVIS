@@ -27,7 +27,7 @@ LLM (локальная и облачная), память, автоматиза
 ### Phase 0 — Research & Architecture · S · ✅ завершена
 Документы: Architecture, TechnologyComparison, Security, Privacy, Roadmap, PerformanceTargets.
 
-### Phase 1 — Project Foundation · M · ✅ в CI, ждёт проверки на Mac пользователя
+### Phase 1 — Project Foundation · M · ✅ завершена (проверена на Mac пользователя)
 * репозиторий, структура, SPM-пакет `JarvisKit` + XcodeGen-проект, Makefile;
 * CI на macOS (GitHub Actions): тесты пакета, сборка приложения, UI-тест запуска, privacy-lint;
 * menu bar приложение (агент без иконки в Dock), мини-окно, окно журнала, Settings;
@@ -40,8 +40,8 @@ LLM (локальная и облачная), память, автоматиза
 **Готово, когда:** CI зелёный; приложение собирается, запускается, показывает статус;
 на Mac пользователя — запускается из Xcode/`make run`.
 
-### Phase 2 — Voice MVP · L
-* `JarvisVoice`: AVAudioEngine с voice processing, RMS-гейт, `SpeechDetector`,
+### Phase 2 — Voice MVP · L · 🔄 в CI, ждёт проверки на Mac пользователя
+* `JarvisVoice`: AVAudioEngine, `SpeechDetector`,
   `SpeechTranscriber`/`DictationTranscriber`, проверки языков и скачивание моделей;
 * wake word (настраиваемые фразы), PTT (глобальная горячая клавиша), окончание фразы по паузе;
 * TTS (`AVSpeechSynthesizer`): голос, скорость, громкость;
@@ -50,7 +50,12 @@ LLM (локальная и облачная), память, автоматиза
 * текстовый ввод команд (та же цепочка) — для тихих мест и отладки;
 * замеры: CPU/RAM в простое и при прослушивании.
 
-**Проверка на устройстве:** качество русского, ложные срабатывания wake word, CPU при речи рядом.
+Отложено осознанно: voice processing (эхоподавление) в AVAudioEngine на macOS приглушает звук
+других приложений — пока вместо него JARVIS просто не слушает команды, пока говорит сам.
+RMS-гейт заменён встроенным детектором речи `SpeechDetector`.
+
+**Проверка на устройстве:** качество русского, ложные срабатывания wake word, CPU при речи рядом,
+нужно ли разрешение «Распознавание речи».
 
 ### Phase 3 — macOS Control · L
 * `JarvisMac`: адаптеры приложений, окон (AX), файлов (Spotlight + FileManager),

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import JarvisAssistant
 
 /// Небольшое главное окно: статус, управление, разговор, последние действия.
 struct MainWindowView: View {
