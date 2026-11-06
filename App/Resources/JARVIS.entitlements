@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  Entitlements добавляются только вместе с функцией, которой они нужны (docs/Security.md §10):
+  Phase 2 — com.apple.security.device.audio-input (микрофон при Hardened Runtime),
+  Phase 3 — com.apple.security.automation.apple-events (управление приложениями).
+  App Sandbox сознательно не включён — обоснование в docs/Security.md.
+-->
+<dict/>
+</plist>
