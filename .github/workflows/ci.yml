@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  privacy-lint:
+    name: Privacy lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: Self-test privacy-lint
+        run: ./scripts/test-privacy-lint.sh
+      - name: Privacy lint
+        run: ./scripts/privacy-lint.sh
+
+  package-tests:
+    name: JarvisKit — unit tests (macOS)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select Xcode
+        run: ./scripts/ci/select-xcode.sh
+      - name: Toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+      - name: Build and test (warnings are errors)
+        run: swift test --package-path Packages/JarvisKit -Xswiftc -warnings-as-errors
+
+  app:
+    name: App — build, UI tests, size (macOS)
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Select Xcode
+        run: ./scripts/ci/select-xcode.sh
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build Release
+        run: >
+          xcodebuild -project JARVIS.xcodeproj -scheme JARVIS -configuration Release
+          -derivedDataPath build/DerivedData -destination 'platform=macOS,arch=arm64' build
+      - name: Release app size
+        run: |
+          du -sh build/DerivedData/Build/Products/Release/JARVIS.app
+          codesign -dv --verbose=2 build/DerivedData/Build/Products/Release/JARVIS.app 2>&1 | grep -E 'Identifier|Signature|Runtime|flags' || true
+      - name: UI tests
+        run: >
+          xcodebuild -project JARVIS.xcodeproj -scheme JARVIS -configuration Debug
+          -derivedDataPath build/DerivedData -destination 'platform=macOS,arch=arm64'
+          -resultBundlePath build/UITests.xcresult test
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: build/UITests.xcresult
+          retention-days: 7

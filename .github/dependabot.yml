@@ -1,0 +1,10 @@
+# Раз в месяц предлагает обновить версии GitHub Actions в CI (например, actions/checkout).
+# Swift-зависимостей пока нет; Sparkle добавится в Phase 6.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

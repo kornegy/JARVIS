@@ -27,7 +27,7 @@ LLM (локальная и облачная), память, автоматиза
 ### Phase 0 — Research & Architecture · S · ✅ завершена
 Документы: Architecture, TechnologyComparison, Security, Privacy, Roadmap, PerformanceTargets.
 
-### Phase 1 — Project Foundation · M · 🔄 в работе
+### Phase 1 — Project Foundation · M · ✅ в CI, ждёт проверки на Mac пользователя
 * репозиторий, структура, SPM-пакет `JarvisKit` + XcodeGen-проект, Makefile;
 * CI на macOS (GitHub Actions): тесты пакета, сборка приложения, UI-тест запуска, privacy-lint;
 * menu bar приложение (агент без иконки в Dock), мини-окно, окно журнала, Settings;

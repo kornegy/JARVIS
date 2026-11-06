@@ -1,0 +1,44 @@
+name: Ошибка
+description: Что-то работает не так, как ожидалось
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Пожалуйста, **не вставляйте** сюда расшифровки голосовых команд, содержимое писем,
+        пути к личным файлам, API-ключи и другие личные данные. JARVIS не пишет такие данные
+        в логи — поэтому логи можно прикладывать.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Что произошло
+      description: Что вы делали и что увидели.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидалось
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Версия JARVIS
+      description: «Настройки → О программе».
+      placeholder: 0.1.0 (1)
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS и Mac
+      placeholder: macOS 26.1, MacBook Pro M2 Pro
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи (необязательно)
+      description: "`log show --predicate 'subsystem == \"io.github.kornegy.jarvis\"' --last 10m`"
+      render: text

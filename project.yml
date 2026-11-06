@@ -1,0 +1,90 @@
+# XcodeGen-спецификация проекта JARVIS.
+# Xcode-проект не хранится в git: он генерируется командой `xcodegen generate` (или `make project`).
+# Вся логика — в Swift Package Packages/JarvisKit; здесь только приложение и UI-тесты.
+
+name: JARVIS
+
+options:
+  bundleIdPrefix: io.github.kornegy
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  developmentLanguage: ru
+
+settings:
+  base:
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+    # По умолчанию — ad-hoc подпись (как в CI). Для стабильной подписи своим сертификатом
+    # Apple Development: `make run TEAM=<Team ID>` (см. docs/Development.md).
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+
+packages:
+  JarvisKit:
+    path: Packages/JarvisKit
+
+targets:
+  JARVIS:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/Sources
+    settings:
+      base:
+        PRODUCT_NAME: JARVIS
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kornegy.jarvis
+        INFOPLIST_FILE: App/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: App/Resources/JARVIS.entitlements
+        # Hardened Runtime — только для самого приложения (нужно для нотаризации).
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_APP_SANDBOX: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    dependencies:
+      - package: JarvisKit
+        product: JarvisCore
+      - package: JarvisKit
+        product: JarvisSettings
+      - package: JarvisKit
+        product: JarvisTools
+
+  JARVISUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: App/UITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.kornegy.jarvis.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: JARVIS
+        # Тест-раннеру Hardened Runtime не нужен: с ним проверка библиотек (library validation)
+        # не даёт раннеру загрузить тестовый бандл при ad-hoc подписи («different Team IDs»).
+        ENABLE_HARDENED_RUNTIME: NO
+    dependencies:
+      - target: JARVIS
+
+schemes:
+  JARVIS:
+    build:
+      targets:
+        JARVIS: all
+        JARVISUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - JARVISUITests
+    profile:
+      config: Release
+    archive:
+      config: Release

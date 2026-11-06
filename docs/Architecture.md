@@ -179,9 +179,9 @@ CloudKit private database (данные пользователя в его iClou
 
 | Модуль (SPM target) | Ответственность | Зависит от | Фаза |
 |---|---|---|---|
-| `JarvisCore` | состояния ассистента и машина переходов, `Utterance`, протоколы движков (STT/TTS/wake word/LLM), privacy-safe логгер, атомарное JSON-хранилище, пути данных | — | 1 |
+| `JarvisCore` | состояния ассистента и машина переходов, `Utterance`/`Sensitive`, privacy-safe логгер, атомарное хранилище и резервные копии, пути данных, журнал аудита и общие типы (источник команды, уровень риска); протоколы голосовых движков добавятся в Phase 2 | — | 1 |
 | `JarvisSettings` | модель настроек, значения по умолчанию, хранилище, миграции схемы | Core | 1 |
-| `JarvisTools` | `Tool`, `ToolDescriptor`, `ToolRegistry`, валидация аргументов, уровни риска, политика подтверждения, журнал аудита | Core | 1 (интерфейсы), 3 (исполнитель) |
+| `JarvisTools` | `Tool`, `ToolDescriptor`, `ToolRegistry`, валидация аргументов, политика подтверждения | Core | 1 (интерфейсы), 3 (исполнитель) |
 | `JarvisAI` | `RuleIntentParser`, `HybridRouter`, провайдеры (Apple FM, OpenAI-совместимый, Anthropic), `PromptBuilder`, личность | Core, Tools, Settings | 2, 4 |
 | `JarvisVoice` (macOS) | AudioCapture, VAD, wake word, STT, TTS, PTT-хоткей | Core | 2 |
 | `JarvisMac` (macOS) | macOS Integration Layer: адаптеры приложений, файлов, системы, браузера, почты, календаря; Permission Manager; Keychain | Core, Tools | 3 |
