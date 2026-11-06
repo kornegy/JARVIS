@@ -46,6 +46,14 @@ make test-ui
 UI-тесты при первом запуске попросят разрешить Xcode/тест-раннеру управление компьютером
 (Accessibility) — это нужно XCUITest, а не JARVIS.
 
+Если UI-тест падает с `Failed to load the test bundle … different Team IDs`, тест-раннер и
+тестовый бандл подписаны разными «командами». Подпишите всё своим бесплатным сертификатом
+Apple Development (как получить Team ID — [Development.md §3](Development.md)):
+
+```bash
+make test-ui TEAM=ABCDE12345
+```
+
 ## 4. Ручной чек-лист Phase 1
 
 - [ ] `make run` — в строке меню появилась иконка, открылось окно JARVIS.
