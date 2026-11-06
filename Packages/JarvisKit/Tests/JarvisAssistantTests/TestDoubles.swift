@@ -6,17 +6,28 @@ import JarvisCore
 @MainActor
 final class FakeSpeechInput: SpeechInputEngine {
     var isCapturing = false
+    var activeModelName: String? { isCapturing ? "Fake" : nil }
     var status: SpeechModelStatus = .installed
+    private(set) var forcedListening = false
+    private(set) var finalizeCount = 0
     var startError: SpeechEngineError?
     private(set) var startCount = 0
     private(set) var stopCount = 0
     private(set) var lastConfiguration: SpeechInputConfiguration?
     private var continuation: AsyncStream<SpeechInputEvent>.Continuation?
 
-    func modelStatus(for locale: Locale) async -> SpeechModelStatus { status }
+    func modelStatus(for configuration: SpeechInputConfiguration) async -> SpeechModelStatus { status }
 
-    func downloadModel(for locale: Locale) async throws {
+    func downloadModel(for configuration: SpeechInputConfiguration) async throws {
         status = .installed
+    }
+
+    func setForcedListening(_ forced: Bool) {
+        forcedListening = forced
+    }
+
+    func finalize() async {
+        finalizeCount += 1
     }
 
     func start(_ configuration: SpeechInputConfiguration) async throws -> AsyncStream<SpeechInputEvent> {

@@ -109,6 +109,24 @@ public enum PushToTalkShortcut: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Какую модель распознавания Apple предпочитать (обе работают только на устройстве).
+public enum RecognitionModelPreference: String, Codable, Sendable, CaseIterable {
+    /// Новая модель (`SpeechTranscriber`), если поддерживает язык, иначе классическая.
+    case automatic
+    /// Классическая модель системной диктовки (`DictationTranscriber`).
+    case dictation
+    /// Новая модель Apple (`SpeechTranscriber`).
+    case modern
+
+    public var displayName: String {
+        switch self {
+        case .automatic: "Автоматически"
+        case .dictation: "Классическая (системная диктовка)"
+        case .modern: "Новая модель Apple"
+        }
+    }
+}
+
 public struct VoiceSettings: Codable, Equatable, Sendable {
     /// Языки, для которых есть правила разбора команд и ответы.
     public static let supportedRecognitionLocales = ["ru_RU", "en_US"]
@@ -121,7 +139,8 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
     public var recognitionLocale = "ru_RU"
     /// UID аудиоустройства ввода; `nil` — системный микрофон по умолчанию.
     public var inputDeviceUID: String?
-    /// Чувствительность микрофона 0…1 (порог уровня сигнала перед VAD).
+    /// Чувствительность микрофона 0…1: выше — слышит тише сказанное (детектор речи «мягче»,
+    /// порог уровня сигнала ниже).
     public var microphoneSensitivity = 0.5
     /// Пауза, после которой фраза считается законченной, секунд.
     public var endOfSpeechSilenceSeconds = 1.0
@@ -137,13 +156,15 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
     public var playSounds = true
     /// Горячая клавиша Push-to-Talk.
     public var pushToTalkShortcut: PushToTalkShortcut = .controlOptionSpace
+    /// Предпочитаемая модель распознавания.
+    public var recognitionModel: RecognitionModelPreference = .automatic
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case listeningMode, wakePhrases, recognitionLocale, inputDeviceUID, microphoneSensitivity
         case endOfSpeechSilenceSeconds, voiceIdentifier, speechRate, speechVolume
-        case speakResponses, playSounds, pushToTalkShortcut
+        case speakResponses, playSounds, pushToTalkShortcut, recognitionModel
     }
 
     public init(from decoder: any Decoder) throws {
@@ -160,6 +181,7 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
         speakResponses = try container.decodeIfPresent(Bool.self, forKey: .speakResponses) ?? speakResponses
         playSounds = try container.decodeIfPresent(Bool.self, forKey: .playSounds) ?? playSounds
         pushToTalkShortcut = try container.decodeIfPresent(PushToTalkShortcut.self, forKey: .pushToTalkShortcut) ?? pushToTalkShortcut
+        recognitionModel = try container.decodeIfPresent(RecognitionModelPreference.self, forKey: .recognitionModel) ?? recognitionModel
     }
 
     /// Локаль распознавания; неизвестное значение заменяется русским.

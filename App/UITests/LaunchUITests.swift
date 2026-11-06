@@ -17,6 +17,10 @@ final class LaunchUITests: XCTestCase {
         let initial = Self.text(of: status)
         XCTAssertEqual(initial, "Выключен")
 
+        let usage = app.staticTexts["diagnostics.usage"]
+        let usageShown = Self.wait(timeout: 10) { Self.text(of: usage).hasPrefix("ЦП:") }
+        XCTAssertTrue(usageShown, "Нет строки диагностики CPU/памяти")
+
         let power = app.buttons["assistant.power"]
         let powerExists = power.waitForExistence(timeout: 10)
         XCTAssertTrue(powerExists, "Нет кнопки включения")

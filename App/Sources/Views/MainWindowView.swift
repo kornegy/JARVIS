@@ -61,6 +61,8 @@ struct MainWindowView: View {
                     openSettings()
                 }
             }
+
+            ResourceUsageFooter(model: model)
         }
         .padding(20)
         .frame(width: 400)

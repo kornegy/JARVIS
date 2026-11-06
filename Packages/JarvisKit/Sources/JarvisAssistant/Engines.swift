@@ -1,5 +1,6 @@
 import Foundation
 import JarvisCore
+import JarvisSettings
 
 // Интерфейсы «движков», с которыми работает ассистент. Реализации для macOS — в модуле
 // JarvisVoice; в тестах — простые подделки. Благодаря этому вся логика ассистента
@@ -29,13 +30,25 @@ public struct SpeechInputConfiguration: Sendable, Equatable {
     public var locale: Locale
     /// UID микрофона; `nil` — системный микрофон по умолчанию.
     public var inputDeviceUID: String?
-    /// Чувствительность детектора речи 0…1.
+    /// Чувствительность 0…1: выше — слышит тише сказанное.
     public var sensitivity: Double
+    /// Постоянное прослушивание (режим wake word): тишина до распознавания не доходит,
+    /// анализ идёт с фоновым приоритетом.
+    public var continuous: Bool
+    public var modelPreference: RecognitionModelPreference
 
-    public init(locale: Locale, inputDeviceUID: String? = nil, sensitivity: Double = 0.5) {
+    public init(
+        locale: Locale,
+        inputDeviceUID: String? = nil,
+        sensitivity: Double = 0.5,
+        continuous: Bool = false,
+        modelPreference: RecognitionModelPreference = .automatic
+    ) {
         self.locale = locale
         self.inputDeviceUID = inputDeviceUID
         self.sensitivity = sensitivity
+        self.continuous = continuous
+        self.modelPreference = modelPreference
     }
 }
 
@@ -64,11 +77,18 @@ public enum SpeechEngineError: Error, Sendable, Equatable {
 public protocol SpeechInputEngine: AnyObject {
     /// Идёт ли сейчас захват звука с микрофона.
     var isCapturing: Bool { get }
-    func modelStatus(for locale: Locale) async -> SpeechModelStatus
+    /// Какая модель распознавания сейчас работает (для диагностики), `nil` — захвата нет.
+    var activeModelName: String? { get }
+    func modelStatus(for configuration: SpeechInputConfiguration) async -> SpeechModelStatus
     /// Скачивает системную модель языка у Apple (звук и текст при этом не передаются).
-    func downloadModel(for locale: Locale) async throws
+    func downloadModel(for configuration: SpeechInputConfiguration) async throws
     func start(_ configuration: SpeechInputConfiguration) async throws -> AsyncStream<SpeechInputEvent>
     func stop() async
+    /// Пропускать к распознаванию весь звук, даже тихий (пока пользователь явно говорит
+    /// команду). Без этого в постоянном режиме тишина и тихий фон отсекаются.
+    func setForcedListening(_ forced: Bool)
+    /// Попросить распознавание выдать окончательный текст по уже услышанному звуку.
+    func finalize() async
 }
 
 /// Параметры голоса ответа.

@@ -113,6 +113,11 @@ private struct VoiceSettingsView: View {
                     Text("Русский").tag("ru_RU")
                     Text("English").tag("en_US")
                 }
+                Picker("Модель распознавания", selection: model.binding(\.voice.recognitionModel)) {
+                    ForEach(RecognitionModelPreference.allCases, id: \.self) { preference in
+                        Text(preference.displayName).tag(preference)
+                    }
+                }
                 LabeledContent("Модель языка") {
                     HStack {
                         Text(Self.statusText(modelStatus))
@@ -137,6 +142,9 @@ private struct VoiceSettingsView: View {
                 CommittingSlider(title: "Чувствительность", model: model, keyPath: \.voice.microphoneSensitivity, range: 0...1) {
                     "\(Int(($0 * 100).rounded())) %"
                 }
+                Text("Если JARVIS не слышит тихую речь — увеличьте. Если реагирует на шум — уменьшите.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 CommittingSlider(title: "Пауза конца фразы", model: model, keyPath: \.voice.endOfSpeechSilenceSeconds, range: 0.5...3) {
                     String(format: "%.1f с", $0)
                 }
@@ -171,7 +179,8 @@ private struct VoiceSettingsView: View {
         .onChange(of: model.settings.voice.recognitionLocale) {
             voices = SystemSpeechSynthesizer.voices(for: model.settings.voice.locale)
         }
-        .task(id: model.settings.voice.recognitionLocale) {
+        .task(id: ModelKey(locale: model.settings.voice.recognitionLocale, preference: model.settings.voice.recognitionModel)) {
+            modelStatus = nil
             modelStatus = await model.speechModelStatus()
         }
         .onDisappear { commitPhrases() }
@@ -184,6 +193,12 @@ private struct VoiceSettingsView: View {
             .filter { !$0.isEmpty }
         model.update { $0.voice.wakePhrases = phrases }
         phrasesDraft = model.settings.voice.wakePhrases.joined(separator: ", ")
+    }
+
+    /// Статус модели перепроверяется при смене языка или модели.
+    private struct ModelKey: Equatable {
+        let locale: String
+        let preference: RecognitionModelPreference
     }
 
     private static func statusText(_ status: SpeechModelStatus?) -> String {

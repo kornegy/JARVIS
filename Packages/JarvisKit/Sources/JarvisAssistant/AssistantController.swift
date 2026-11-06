@@ -58,6 +58,9 @@ public final class AssistantController {
 
     public var state: AssistantState { machine.state }
 
+    /// Какая модель распознавания сейчас работает (для диагностики).
+    public var activeSpeechModelName: String? { speechInput.activeModelName }
+
     /// Голосовая команда изменила Privacy Mode — приложение сохраняет настройку.
     @ObservationIgnored public var onPrivacyModeRequest: ((Bool, CommandSource) -> Void)?
     /// В журнал добавлена запись — интерфейс может обновить список.
@@ -157,6 +160,8 @@ public final class AssistantController {
     public func pushToTalkReleased() {
         guard assembler.captureTrigger == .pushToTalkHold else { return }
         assembler.releaseCapture(at: now())
+        // Попросить окончательный текст сразу, не дожидаясь паузы.
+        Task { [weak self] in await self?.speechInput.finalize() }
     }
 
     /// Кнопка «Говорить»: слушать до паузы.
@@ -194,6 +199,7 @@ public final class AssistantController {
         let captureChanged = previous.voice.recognitionLocale != newSettings.voice.recognitionLocale
             || previous.voice.inputDeviceUID != newSettings.voice.inputDeviceUID
             || previous.voice.microphoneSensitivity != newSettings.voice.microphoneSensitivity
+            || previous.voice.recognitionModel != newSettings.voice.recognitionModel
         if captureChanged {
             problem = nil
             if case .failed(_) = machine.state { machine.handle(.recover) }
@@ -214,7 +220,7 @@ public final class AssistantController {
         isDownloadingModel = true
         defer { isDownloadingModel = false }
         do {
-            try await speechInput.downloadModel(for: settings.voice.locale)
+            try await speechInput.downloadModel(for: captureConfiguration())
             log.notice("Speech model installed")
             await retry()
         } catch {
@@ -254,8 +260,20 @@ public final class AssistantController {
             guard await startEngine() else { return }
         }
         guard machine.state == .listening else { return }
+        // Пользователь явно говорит команду — тихую речь не отсекаем.
+        speechInput.setForcedListening(true)
         play(.listening)
         startTicking()
+    }
+
+    private func captureConfiguration() -> SpeechInputConfiguration {
+        SpeechInputConfiguration(
+            locale: settings.voice.locale,
+            inputDeviceUID: settings.voice.inputDeviceUID,
+            sensitivity: settings.voice.microphoneSensitivity,
+            continuous: wantsContinuousListening,
+            modelPreference: settings.voice.recognitionModel
+        )
     }
 
     @discardableResult
@@ -277,8 +295,8 @@ public final class AssistantController {
             return false
         }
 
-        let locale = settings.voice.locale
-        switch await speechInput.modelStatus(for: locale) {
+        let configuration = captureConfiguration()
+        switch await speechInput.modelStatus(for: configuration) {
         case .installed:
             break
         case .needsDownload:
@@ -292,11 +310,6 @@ public final class AssistantController {
             return false
         }
 
-        let configuration = SpeechInputConfiguration(
-            locale: locale,
-            inputDeviceUID: settings.voice.inputDeviceUID,
-            sensitivity: settings.voice.microphoneSensitivity
-        )
         do {
             let events = try await speechInput.start(configuration)
             isMicrophoneCapturing = true
@@ -378,6 +391,7 @@ public final class AssistantController {
             switch event {
             case .wakePhraseDetected:
                 if machine.handle(.wakeWordDetected) {
+                    speechInput.setForcedListening(true)
                     lastReply = nil
                     liveTranscript = ""
                     play(.listening)
@@ -387,6 +401,7 @@ public final class AssistantController {
                 liveTranscript = text
             case .commandReady(let utterance, let trigger):
                 stopTicking()
+                speechInput.setForcedListening(false)
                 guard machine.handle(.utteranceCaptured) else { continue }
                 play(.done)
                 liveTranscript = utterance.text
@@ -396,6 +411,7 @@ public final class AssistantController {
                 }
             case .captureEnded:
                 stopTicking()
+                speechInput.setForcedListening(false)
                 liveTranscript = nil
                 if machine.handle(.listeningCancelled) { play(.cancelled) }
                 Task { [weak self] in await self?.reconcileListening() }
@@ -470,6 +486,7 @@ public final class AssistantController {
 
     private func cancelCapture() {
         assembler.cancel()
+        speechInput.setForcedListening(false)
         stopTicking()
         liveTranscript = nil
     }

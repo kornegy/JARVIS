@@ -169,8 +169,15 @@ final class AppModel {
     }
 
     func speechModelStatus() async -> SpeechModelStatus {
-        await speechInput.modelStatus(for: settings.voice.locale)
+        let configuration = SpeechInputConfiguration(
+            locale: settings.voice.locale,
+            modelPreference: settings.voice.recognitionModel
+        )
+        return await speechInput.modelStatus(for: configuration)
     }
+
+    /// Какая модель распознавания сейчас слушает (для строки диагностики).
+    var activeSpeechModelName: String? { assistant.activeSpeechModelName }
 
     func previewVoice() {
         let text = ResponseLanguage(locale: settings.voice.locale) == .english

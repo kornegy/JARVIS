@@ -110,13 +110,17 @@ struct AssistantControllerTests {
         #expect(h.controller.state == .listening)
         #expect(h.controller.isMicrophoneCapturing)
         #expect(h.sounds.played.contains(.listening))
+        #expect(h.input.lastConfiguration?.continuous == false)
+        #expect(h.input.forcedListening) // явная команда — тихую речь не отсекаем
 
         h.input.say("Джарвис, какое сегодня число", isFinal: false)
         #expect(await waitUntil { h.controller.liveTranscript == "какое сегодня число" })
 
         h.controller.pushToTalkReleased()
+        #expect(await waitUntil { h.input.finalizeCount == 1 })
         h.clock.advance(1)
         h.controller.tick()
+        #expect(!h.input.forcedListening)
 
         #expect(await waitUntil { h.output.spoken.count == 1 })
         #expect(h.output.spoken.first?.hasPrefix("Сегодня") == true)
@@ -134,6 +138,8 @@ struct AssistantControllerTests {
         await h.controller.enable()
         #expect(h.input.startCount == 1)
         #expect(h.controller.isMicrophoneCapturing)
+        #expect(h.input.lastConfiguration?.continuous == true)
+        #expect(!h.input.forcedListening) // в ожидании тишина отсекается
 
         h.input.say("обычный разговор рядом с компьютером")
         try await Task.sleep(for: .milliseconds(50))
@@ -141,6 +147,7 @@ struct AssistantControllerTests {
 
         h.input.say("Привет, Джарвис, который час")
         #expect(await waitUntil { h.controller.state == .listening })
+        #expect(h.input.forcedListening) // после фразы-активатора слушаем всё
         h.clock.advance(1.2)
         h.controller.tick()
 
@@ -255,6 +262,11 @@ struct AssistantControllerTests {
 
         #expect(h.input.startCount == 2)
         #expect(h.input.lastConfiguration?.locale.identifier == "en_US")
+
+        settings.voice.recognitionModel = .dictation
+        await h.controller.apply(settings: settings)
+        #expect(h.input.startCount == 3)
+        #expect(h.input.lastConfiguration?.modelPreference == .dictation)
     }
 
     @Test("Ошибка распознавания — проблема показана, микрофон закрыт")
