@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Self-test privacy-lint
         run: ./scripts/test-privacy-lint.sh
       - name: Privacy lint
@@ -29,7 +29,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Select Xcode
         run: ./scripts/ci/select-xcode.sh
       - name: Toolchain
@@ -45,7 +45,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Select Xcode
         run: ./scripts/ci/select-xcode.sh
       - name: Install XcodeGen
