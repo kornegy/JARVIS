@@ -21,21 +21,24 @@ endif
 
 XCODEBUILD := xcodebuild -project $(PROJECT) -scheme $(SCHEME) -derivedDataPath $(DERIVED) -destination '$(DEST)'
 
-.PHONY: help lint test test-package project build run test-ui release clean
+.PHONY: help check-xcode lint test test-package project build run test-ui release clean
 
 help:
 	@grep -E '^#   make' Makefile | sed 's/^#   //'
+
+check-xcode:
+	@./scripts/check-xcode.sh
 
 lint:
 	./scripts/test-privacy-lint.sh
 	./scripts/privacy-lint.sh
 
-test-package:
+test-package: check-xcode
 	swift test --package-path $(PACKAGE) -Xswiftc -warnings-as-errors
 
 test: lint test-package
 
-project:
+project: check-xcode
 	@command -v xcodegen >/dev/null || { echo "Установите XcodeGen: brew install xcodegen"; exit 1; }
 	xcodegen generate
 

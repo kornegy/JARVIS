@@ -1,0 +1,30 @@
+name: Идея или новая возможность
+description: Предложить новую команду, интеграцию или улучшение
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Какую задачу это решает
+      description: Пример фразы для JARVIS и что должно произойти.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Как это могло бы работать
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Уровень риска действия (docs/Security.md §5)
+      options:
+        - "1 — безопасное (открыть, найти, показать)"
+        - "2 — с последствиями (переместить, закрыть, создать)"
+        - "3 — опасное или необратимое (удалить, отправить, опубликовать)"
+        - Не знаю
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Приватность
+      options:
+        - label: Функция может работать без отправки данных в облако

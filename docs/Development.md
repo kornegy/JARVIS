@@ -10,6 +10,31 @@
 
 Сторонних библиотек в приложении нет — `swift test` и сборка не скачивают зависимости.
 
+### Xcode, а не Command Line Tools
+
+Если `make` пишет «активны Command Line Tools» (или xcodebuild жалуется
+`requires Xcode, but active developer directory … is a command line tools instance`),
+значит, установлена или выбрана не та версия инструментов. Нужна полная Xcode:
+
+```bash
+ls /Applications | grep -i xcode
+```
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
+
+```bash
+sudo xcodebuild -license accept
+```
+
+```bash
+xcodebuild -runFirstLaunch
+```
+
+Если первая команда ничего не нашла — установите Xcode из App Store. Проверка
+`scripts/check-xcode.sh` запускается автоматически перед `make test`, `make run` и т.д.
+
 ## 2. Первый запуск
 
 ```bash

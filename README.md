@@ -1,5 +1,7 @@
 # JARVIS
 
+[![CI](https://github.com/kornegy/JARVIS/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kornegy/JARVIS/actions/workflows/ci.yml)
+
 Персональный голосовой ассистент для macOS: работает в строке меню, понимает естественную
 речь (русский и английский), управляет приложениями, файлами и системой — **локально,
 приватно и без собственного сервера**.
@@ -21,7 +23,14 @@
 
 * Mac на Apple Silicon (M1 и новее) — основная цель;
 * macOS 26 (Tahoe) или новее;
-* для сборки: Xcode 26+ и [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+* для сборки: **полная Xcode 26+** (не только Command Line Tools) и
+  [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
+
+Если `make` пишет, что активны Command Line Tools, выберите Xcode:
+
+```bash
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+```
 
 ## Быстрый старт
 
