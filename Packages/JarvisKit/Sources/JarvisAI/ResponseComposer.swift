@@ -53,7 +53,7 @@ public struct SeededRandomNumberGenerator: RandomNumberGenerator, Sendable {
 public struct ResponseComposer {
     public var personality: Personality
     public var language: ResponseLanguage
-    private var random: any RandomNumberGenerator
+    private var random: AnyRandomGenerator
 
     public init(
         personality: Personality = Personality(),
@@ -62,7 +62,7 @@ public struct ResponseComposer {
     ) {
         self.personality = personality
         self.language = language
-        self.random = random
+        self.random = AnyRandomGenerator(base: random)
     }
 
     /// Ответ на намерение. `value` — результат инструмента (например, «14:35»).
@@ -101,6 +101,15 @@ public struct ResponseComposer {
     private mutating func chance(_ probability: Double) -> Bool {
         guard probability > 0 else { return false }
         return Double.random(in: 0..<1, using: &random) < probability
+    }
+}
+
+/// Обёртка: позволяет хранить любой генератор и передавать его в `random(using:)`.
+struct AnyRandomGenerator: RandomNumberGenerator {
+    var base: any RandomNumberGenerator
+
+    mutating func next() -> UInt64 {
+        base.next()
     }
 }
 
