@@ -59,7 +59,9 @@ struct StorageTests {
         let first = try backups.backUp(source, name: "settings", label: "corrupt", at: fixedDate())
         let second = try backups.backUp(source, name: "settings", label: "corrupt", at: fixedDate())
 
-        #expect(first != second)
-        #expect(try backups.backups(name: "settings").first == second)
+        #expect(first.lastPathComponent != second.lastPathComponent)
+        // Сравниваем имена, а не URL: каталог может вернуться как /private/var/… вместо /var/….
+        let newest = try backups.backups(name: "settings").first?.lastPathComponent
+        #expect(newest == second.lastPathComponent)
     }
 }
