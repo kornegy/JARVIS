@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Xcode (проект генерируется XcodeGen из project.yml)
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+build/
+*.xcresult
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/*/.build/
+Packages/*/.swiftpm/
+
+# Локальные настройки подписи (см. Config/Local.xcconfig.example)
+Config/Local.xcconfig
+
+# Секреты никогда не коммитятся
+*.p12
+*.pem
+*.key
+.env
