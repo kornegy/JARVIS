@@ -52,8 +52,10 @@ JARVIS — нативное macOS-приложение на **Swift 6 + SwiftUI/
 ## 3. Голосовой конвейер
 
 ```
-Микрофон (AVAudioEngine, voice processing = эхоподавление)
-  → кольцевой буфер в RAM (≈2 с)
+Микрофон (AVAudioEngine)
+  → конвертация в формат модели (только RAM)
+  → [режим wake word] ворота тишины SpeechGate: громкость ниже порога → звук не идёт
+     дальше; держим в RAM только ≈0,5 с «до», чтобы не потерять начало слова
   → VAD (SpeechDetector) — «есть ли речь?»; тишина не транскрибируется
   → потоковое on-device STT (SpeechAnalyzer: SpeechTranscriber или DictationTranscriber)
   → WakePhraseMatcher («привет джарвис», «джарвис», «hey jarvis»…)
@@ -71,9 +73,22 @@ JARVIS — нативное macOS-приложение на **Swift 6 + SwiftUI/
   Цена — CPU при постоянной речи рядом (ТВ, созвоны). Если замеры в Phase 2/5 превысят
   цели из [PerformanceTargets.md](PerformanceTargets.md), добавляем первую ступень —
   крошечную Core ML-модель keyword spotting (двухступенчатая схема).
-* **Конец фразы**: пауза 0,8–1,2 с (настраивается) или лимит 15 с.
-* **Самоактивация**: на время собственной речи (TTS) wake word отключён; voice processing
-  в AVAudioEngine вычитает системный звук.
+* **Конец фразы**: пауза 0,8–1,2 с (настраивается) или лимит 15 с. Отпустили клавишу PTT
+  или ворота тишины закрылись — просим модель сразу выдать окончательный текст
+  (`SpeechAnalyzer.finalize`), а не ждать следующего звука.
+* **Экономия процессора** (после замера 44 % на Mac пользователя, см.
+  [PerformanceTargets.md §4](PerformanceTargets.md#4-измерено)):
+  - ворота тишины в режиме wake word — в тишине модель распознавания не работает вовсе;
+  - пока пользователь явно говорит команду (после фразы-активатора или по кнопке), ворота
+    открыты принудительно — тихая речь не обрезается;
+  - без опций «максимально быстрых» результатов (`fastResults`, `frequentFinalization`) —
+    модель реже пересчитывает текст;
+  - постоянное прослушивание работает с приоритетом `.utility`, модели держатся в памяти
+    недолго (`.lingering`), чтобы повторное нажатие PTT не загружало их заново;
+  - выбор модели в настройках («Автоматически» / «Новая модель Apple» / «Классическая») —
+    чтобы сравнить нагрузку и качество на конкретном Mac.
+* **Самоактивация**: на время собственной речи (TTS) JARVIS не слушает команды. Voice
+  processing (эхоподавление) отложено: на macOS он приглушает звук других приложений.
 
 ## 4. Интерпретация команды (AI Layer)
 
@@ -182,14 +197,16 @@ CloudKit private database (данные пользователя в его iClou
 | `JarvisCore` | состояния ассистента и машина переходов, `Utterance`/`Sensitive`, privacy-safe логгер, атомарное хранилище и резервные копии, пути данных, журнал аудита и общие типы (источник команды, уровень риска); протоколы голосовых движков добавятся в Phase 2 | — | 1 |
 | `JarvisSettings` | модель настроек, значения по умолчанию, хранилище, миграции схемы | Core | 1 |
 | `JarvisTools` | `Tool`, `ToolDescriptor`, `ToolRegistry`, валидация аргументов, политика подтверждения | Core | 1 (интерфейсы), 3 (исполнитель) |
-| `JarvisAI` | `RuleIntentParser`, `HybridRouter`, провайдеры (Apple FM, OpenAI-совместимый, Anthropic), `PromptBuilder`, личность | Core, Tools, Settings | 2, 4 |
-| `JarvisVoice` (macOS) | AudioCapture, VAD, wake word, STT, TTS, PTT-хоткей | Core | 2 |
+| `JarvisAI` | нормализация текста, `WakePhraseMatcher`, `RuleIntentParser`, `ResponseComposer` (личность); в Phase 4 — `HybridRouter` и LLM-провайдеры | — | 2 ✅, 4 |
+| `JarvisAssistant` | App Core: протоколы движков, `UtteranceAssembler`, `CommandProcessor`, встроенные инструменты, `AssistantController` | Core, Settings, Tools, AI | 2 ✅ |
+| `JarvisVoice` (macOS) | захват звука, `SpeechAnalyzer` + `SpeechDetector`, модели языков, TTS, разрешения, PTT-хоткей, список микрофонов | Core, Settings, Assistant | 2 ✅ |
 | `JarvisMac` (macOS) | macOS Integration Layer: адаптеры приложений, файлов, системы, браузера, почты, календаря; Permission Manager; Keychain | Core, Tools | 3 |
 | `JarvisMemory` | краткосрочная/долгосрочная память, привычки, пользовательские инструкции | Core | 4 |
 | `JarvisAutomation` | сценарии, триггеры, планировщик, история выполнений | Core, Tools, Memory | 4 |
 | `App` (Xcode target) | UI, composition root, Login Item, (Phase 6) Sparkle | всё выше | 1+ |
 
-Граф зависимостей ациклический: `Core ← {Settings, Tools, Voice, Memory} ← {AI, Mac, Automation} ← App`.
+Граф зависимостей ациклический: `Core ← {Settings, Tools, AI} ← Assistant ← Voice ← App`
+(в Phase 3–4 добавятся `Mac`, `Memory`, `Automation` по той же схеме).
 
 Модули, которые в таблице помечены будущими фазами, **не создаются заранее пустыми** —
 появляются вместе с реальной реализацией.

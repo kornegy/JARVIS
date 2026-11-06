@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
+import JarvisAssistant
 
-/// Небольшое главное окно: статус, управление, последние действия.
+/// Небольшое главное окно: статус, управление, разговор, последние действия.
 struct MainWindowView: View {
     let model: AppModel
     @Environment(\.openWindow) private var openWindow
@@ -14,21 +15,33 @@ struct MainWindowView: View {
             if let notice = model.notice {
                 NoticeBanner(text: notice) { model.dismissNotice() }
             }
+            if let problem = model.assistant.problem {
+                ProblemBanner(model: model, problem: problem)
+            }
 
             HStack {
                 PowerButton(model: model)
+                TalkButton(model: model)
                 MicrophonePauseButton(model: model)
             }
 
             MicrophoneIndicator(isCapturing: model.isMicrophoneCapturing)
 
-            if model.isEnabled && !model.isVoiceEngineAvailable {
-                Text("Голосовой ввод появится на следующем этапе (Phase 2). Сейчас JARVIS показывает состояние, хранит настройки и ведёт журнал действий.")
+            if model.isEnabled {
+                Text(model.voiceHint)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("voice.unavailable")
+                    .accessibilityIdentifier("voice.hint")
+                if let hotKeyProblem = model.hotKeyProblem {
+                    Text(hotKeyProblem)
+                        .font(.caption)
+                        .foregroundStyle(Color.orange)
+                }
+                CommandField(model: model)
             }
+
+            ConversationView(model: model)
 
             Divider()
 
@@ -48,8 +61,10 @@ struct MainWindowView: View {
                     openSettings()
                 }
             }
+
+            ResourceUsageFooter(model: model)
         }
         .padding(20)
-        .frame(width: 380)
+        .frame(width: 400)
     }
 }

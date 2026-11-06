@@ -8,6 +8,8 @@ public enum AssistantEvent: Sendable, Equatable {
     case wakeWordDetected
     case pushToTalkPressed
     case utteranceCaptured
+    /// Команда пришла не голосом (текстовый ввод) — сразу к обработке.
+    case commandReceived
     case listeningCancelled
     case planReady(requiresConfirmation: Bool)
     case confirmationResolved(approved: Bool)
@@ -87,6 +89,9 @@ public struct AssistantStateMachine: Sendable, Equatable {
             state = .listening
 
         case (.utteranceCaptured, .listening):
+            state = .processing
+
+        case (.commandReceived, .idle(_)):
             state = .processing
 
         case (.listeningCancelled, .listening):

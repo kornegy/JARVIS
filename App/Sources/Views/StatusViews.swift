@@ -1,4 +1,5 @@
 import SwiftUI
+import JarvisAssistant
 import JarvisCore
 
 /// Иконка и название текущего состояния + имя ассистента.
@@ -38,7 +39,7 @@ struct MicrophoneIndicator: View {
     let isCapturing: Bool
 
     var body: some View {
-        let title = isCapturing ? "Микрофон используется" : "Микрофон не используется"
+        let title = isCapturing ? "Микрофон слушает — звук не сохраняется" : "Микрофон не используется"
         Label(title, systemImage: isCapturing ? "mic.fill" : "mic.slash")
             .font(.callout)
             .foregroundStyle(isCapturing ? Color.orange : Color.secondary)
@@ -68,7 +69,7 @@ struct MicrophonePauseButton: View {
     let model: AppModel
 
     var body: some View {
-        let paused = model.stateMachine.isMicrophonePaused
+        let paused = model.isMicrophonePaused
         let title = paused ? "Снять паузу" : "Пауза микрофона"
         Button {
             model.toggleMicrophonePause()
@@ -137,5 +138,101 @@ struct RecentActivityList: View {
             }
         }
         .accessibilityIdentifier("activity.recent")
+    }
+}
+
+/// Кнопка «Говорить» / «Стоп».
+struct TalkButton: View {
+    let model: AppModel
+
+    var body: some View {
+        let listening = model.state == .listening
+        let title = listening ? "Стоп" : "Говорить"
+        Button {
+            model.toggleTalking()
+        } label: {
+            Label(title, systemImage: listening ? "stop.circle" : "mic.circle")
+        }
+        .disabled(!listening && !model.assistant.machine.canHandle(.pushToTalkPressed))
+        .accessibilityIdentifier("assistant.talk")
+    }
+}
+
+/// Что сейчас распознано и что ответил ассистент. Только в памяти, нигде не сохраняется.
+struct ConversationView: View {
+    let model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let transcript = model.assistant.liveTranscript {
+                Label(transcript.isEmpty ? "Слушаю…" : transcript, systemImage: "waveform")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .accessibilityIdentifier("assistant.transcript")
+            }
+            if let reply = model.assistant.lastReply {
+                Text(reply)
+                    .font(.callout)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("assistant.reply")
+            }
+        }
+    }
+}
+
+/// Проблема с понятным действием: открыть настройки, скачать модель, повторить.
+struct ProblemBanner: View {
+    let model: AppModel
+    let problem: AssistantProblem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(problem.message, systemImage: "exclamationmark.triangle")
+                .font(.callout)
+                .foregroundStyle(Color.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                switch problem {
+                case .microphoneDenied:
+                    Button("Открыть настройки") { model.openSystemPrivacySettings(for: problem) }
+                case .speechRecognitionDenied:
+                    Button("Разрешить распознавание") { model.requestSpeechRecognitionAccess() }
+                    Button("Открыть настройки") { model.openSystemPrivacySettings(for: problem) }
+                case .speechModelMissing, .speechModelDownloadFailed:
+                    Button(model.assistant.isDownloadingModel ? "Скачивается…" : "Скачать модель") {
+                        Task { await model.downloadSpeechModel() }
+                    }
+                    .disabled(model.assistant.isDownloadingModel)
+                case .speechModelDownloading, .languageNotSupported, .microphoneUnavailable:
+                    EmptyView()
+                }
+                Button("Повторить") { model.retryAssistant() }
+            }
+        }
+        .padding(10)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("assistant.problem")
+    }
+}
+
+/// Поле для текстовой команды — когда говорить неудобно.
+struct CommandField: View {
+    let model: AppModel
+    @State private var text = ""
+
+    var body: some View {
+        TextField("Команда текстом, например «который час»", text: $text)
+            .textFieldStyle(.roundedBorder)
+            .onSubmit {
+                let command = text
+                text = ""
+                model.submitCommand(command)
+            }
+            .disabled(!model.assistant.machine.canHandle(.commandReceived))
+            .accessibilityIdentifier("command.field")
     }
 }

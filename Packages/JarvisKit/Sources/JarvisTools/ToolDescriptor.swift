@@ -1,3 +1,4 @@
+import Foundation
 import JarvisCore
 
 /// Имя инструмента — тот же формат, что у идентификатора действия в журнале (`apps.open`).
@@ -69,9 +70,12 @@ public struct ToolDescriptor: Sendable, Equatable {
 /// Контекст выполнения инструмента.
 public struct ToolContext: Sendable {
     public let source: CommandSource
+    /// Язык ответа пользователю (форматирование дат, чисел).
+    public let locale: Locale
 
-    public init(source: CommandSource) {
+    public init(source: CommandSource, locale: Locale = Locale(identifier: "ru_RU")) {
         self.source = source
+        self.locale = locale
     }
 }
 
