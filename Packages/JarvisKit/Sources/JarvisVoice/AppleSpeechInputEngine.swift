@@ -296,9 +296,15 @@ final class RecognitionSession: @unchecked Sendable {
 
     private func startAudio() throws {
         let input = audioEngine.inputNode
-        // Формат `nil` — «текущий формат микрофона». Если передать заранее запомненный формат,
-        // а микрофон тем временем сменил частоту (подключили AirPods и т.п.), AVAudioEngine
-        // аварийно завершает приложение. Конвертер сам подстраивается под формат буферов.
+        // Пока запускалась модель, macOS могла пересобрать аудиоустройство и сменить формат
+        // микрофона. Подключение с устаревшим или пустым форматом AVAudioEngine не прощает:
+        // бросает исключение Objective-C, и приложение завершается (так и было — отчёт о сбое
+        // от 2026-11-08). Поэтому проверяем формат прямо сейчас, а подключаемся с `nil` —
+        // «текущий формат микрофона». Конвертер сам подстраивается под формат буферов.
+        let current = input.outputFormat(forBus: 0)
+        guard current.sampleRate > 0, current.channelCount > 0 else {
+            throw SpeechEngineError.microphoneUnavailable
+        }
         input.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
             // Замер нашей части работы на аудиопотоке (для разбивки «где тратится процессор»).
