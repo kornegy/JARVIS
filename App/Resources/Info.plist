@@ -26,6 +26,10 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>JARVIS слушает голосовые команды. Звук обрабатывается только на этом Mac и никуда не записывается.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>JARVIS распознаёт речь на этом Mac (локальная модель Apple). Звук и текст команд не сохраняются и не передаются.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 kornegy</string>
 </dict>

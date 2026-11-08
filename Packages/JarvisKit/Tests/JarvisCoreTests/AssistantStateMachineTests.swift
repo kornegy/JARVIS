@@ -136,6 +136,16 @@ struct AssistantStateMachineTests {
         #expect(machine.listeningMode == .wakeWord)
     }
 
+    @Test("Текстовая команда: из ожидания сразу к обработке")
+    func typedCommand() {
+        var machine = AssistantStateMachine()
+        #expect(!machine.canHandle(.commandReceived)) // выключен
+        machine.handle(.enable)
+        machine.handle(.commandReceived)
+        #expect(machine.state == .processing)
+        #expect(!machine.canHandle(.commandReceived))
+    }
+
     @Test("Перебивание: Push-to-Talk во время ответа")
     func bargeIn() {
         var machine = AssistantStateMachine()

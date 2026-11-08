@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import JarvisAssistant
 
 /// Панель, которая открывается по клику на иконку JARVIS в строке меню.
 struct MenuBarContentView: View {
@@ -11,12 +12,26 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             StatusHeader(model: model)
 
-            HStack {
-                PowerButton(model: model)
-                MicrophonePauseButton(model: model)
+            if let problem = model.assistant.problem {
+                ProblemBanner(model: model, problem: problem)
             }
 
+            HStack {
+                PowerButton(model: model)
+                TalkButton(model: model)
+            }
+
+            MicrophonePauseButton(model: model)
             MicrophoneIndicator(isCapturing: model.isMicrophoneCapturing)
+
+            if model.isEnabled {
+                Text(model.voiceHint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            ConversationView(model: model)
 
             Toggle("Privacy Mode", isOn: model.binding(\.privacy.privacyMode))
                 .toggleStyle(.switch)
@@ -49,7 +64,7 @@ struct MenuBarContentView: View {
             }
         }
         .padding(16)
-        .frame(width: 320)
+        .frame(width: 330)
     }
 
     private func menuButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
