@@ -185,7 +185,8 @@ final class AppModel {
     var diagnosticsContext: String {
         let mode = settings.voice.listeningMode == .wakeWord ? "фраза-активатор" : "Push-to-Talk"
         let live = settings.voice.showLiveTranscript ? "вкл" : "выкл"
-        let speechModel = activeSpeechModelName ?? "не слушает"
+        // «Слушаю», но модель ещё не назвалась — распознавание запускается (загрузка модели).
+        let speechModel = activeSpeechModelName ?? (state == .listening ? "запускается" : "не слушает")
         return "JARVIS \(Bundle.main.versionDescription) · режим: \(mode) · модель: \(speechModel)"
             + " · живой текст: \(live) · состояние: \(state.presentation.title)"
     }
