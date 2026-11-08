@@ -63,6 +63,7 @@ struct MainWindowView: View {
             }
 
             ResourceUsageFooter(model: model)
+            CPUBreakdownSection(model: model)
         }
         .padding(20)
         .frame(width: 400)

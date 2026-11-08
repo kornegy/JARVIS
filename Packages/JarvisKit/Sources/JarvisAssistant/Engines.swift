@@ -36,19 +36,24 @@ public struct SpeechInputConfiguration: Sendable, Equatable {
     /// анализ идёт с фоновым приоритетом.
     public var continuous: Bool
     public var modelPreference: RecognitionModelPreference
+    /// Промежуточный текст во время речи. Без него модель выдаёт только окончательный
+    /// текст (после паузы или отпускания клавиши) и не пересчитывает его на лету.
+    public var liveResults: Bool
 
     public init(
         locale: Locale,
         inputDeviceUID: String? = nil,
         sensitivity: Double = 0.5,
         continuous: Bool = false,
-        modelPreference: RecognitionModelPreference = .automatic
+        modelPreference: RecognitionModelPreference = .automatic,
+        liveResults: Bool = true
     ) {
         self.locale = locale
         self.inputDeviceUID = inputDeviceUID
         self.sensitivity = sensitivity
         self.continuous = continuous
         self.modelPreference = modelPreference
+        self.liveResults = liveResults
     }
 }
 

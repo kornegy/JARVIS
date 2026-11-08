@@ -200,6 +200,7 @@ public final class AssistantController {
             || previous.voice.inputDeviceUID != newSettings.voice.inputDeviceUID
             || previous.voice.microphoneSensitivity != newSettings.voice.microphoneSensitivity
             || previous.voice.recognitionModel != newSettings.voice.recognitionModel
+            || previous.voice.showLiveTranscript != newSettings.voice.showLiveTranscript
         if captureChanged {
             problem = nil
             if case .failed(_) = machine.state { machine.handle(.recover) }
@@ -272,7 +273,8 @@ public final class AssistantController {
             inputDeviceUID: settings.voice.inputDeviceUID,
             sensitivity: settings.voice.microphoneSensitivity,
             continuous: wantsContinuousListening,
-            modelPreference: settings.voice.recognitionModel
+            modelPreference: settings.voice.recognitionModel,
+            liveResults: settings.voice.showLiveTranscript
         )
     }
 
@@ -355,13 +357,15 @@ public final class AssistantController {
         switch event {
         case .transcript(let utterance, let isFinal):
             guard acceptsTranscripts else { return }
-            let events = assembler.receive(
-                text: utterance.text,
-                isFinal: isFinal,
-                at: now(),
-                listeningForWakePhrase: machine.state == .idle(.wakeWord)
-            )
-            apply(events)
+            CPUMeter.transcripts.measure {
+                let events = assembler.receive(
+                    text: utterance.text,
+                    isFinal: isFinal,
+                    at: now(),
+                    listeningForWakePhrase: machine.state == .idle(.wakeWord)
+                )
+                apply(events)
+            }
         case .interrupted:
             Task { [weak self] in
                 guard let self else { return }

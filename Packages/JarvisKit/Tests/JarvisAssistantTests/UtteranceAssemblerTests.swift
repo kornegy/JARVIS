@@ -90,6 +90,27 @@ struct UtteranceAssemblerTests {
         #expect(result?.1 == .pushToTalkHold)
     }
 
+    @Test("Push-to-Talk без живого текста: после отпускания ждём окончательный текст")
+    func pushToTalkWithoutLiveText() {
+        var assembler = makeAssembler()
+        assembler.beginCapture(trigger: .pushToTalkHold, at: 0)
+        assembler.releaseCapture(at: 3)
+        #expect(assembler.tick(at: 3.8).isEmpty) // текста ещё нет — не сдаёмся через 0,7 с
+        _ = assembler.receive(text: "который час", isFinal: true, at: 4.2, listeningForWakePhrase: false)
+        #expect(assembler.tick(at: 4.5).isEmpty)
+        let result = command(assembler.tick(at: 4.95))
+        #expect(result?.0 == "который час")
+    }
+
+    @Test("Push-to-Talk: промолчали — тихо заканчиваем после ожидания")
+    func pushToTalkSilentRelease() {
+        var assembler = makeAssembler()
+        assembler.beginCapture(trigger: .pushToTalkHold, at: 0)
+        assembler.releaseCapture(at: 1)
+        #expect(assembler.tick(at: 3.0).isEmpty)
+        #expect(assembler.tick(at: 3.6) == [.captureEnded])
+    }
+
     @Test("Кнопка «Говорить»: команда завершается паузой")
     func manualTapEndsOnSilence() {
         var assembler = makeAssembler()

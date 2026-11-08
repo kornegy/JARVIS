@@ -12,7 +12,7 @@ struct StatusHeader: View {
             Image(systemName: presentation.symbolName)
                 .font(.system(size: 26, weight: .medium))
                 .foregroundStyle(presentation.tone.color)
-                .symbolEffect(.pulse, isActive: presentation.tone == .active)
+                // Без бесконечной анимации: она перерисовывает окно каждый кадр, пока JARVIS слушает.
                 .frame(width: 36)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {

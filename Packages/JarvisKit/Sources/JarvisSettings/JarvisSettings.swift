@@ -158,13 +158,16 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
     public var pushToTalkShortcut: PushToTalkShortcut = .controlOptionSpace
     /// Предпочитаемая модель распознавания.
     public var recognitionModel: RecognitionModelPreference = .automatic
+    /// Показывать текст во время речи. Выключение снижает нагрузку: модель не
+    /// пересчитывает текст на лету, команда появляется после паузы или отпускания клавиши.
+    public var showLiveTranscript = true
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case listeningMode, wakePhrases, recognitionLocale, inputDeviceUID, microphoneSensitivity
         case endOfSpeechSilenceSeconds, voiceIdentifier, speechRate, speechVolume
-        case speakResponses, playSounds, pushToTalkShortcut, recognitionModel
+        case speakResponses, playSounds, pushToTalkShortcut, recognitionModel, showLiveTranscript
     }
 
     public init(from decoder: any Decoder) throws {
@@ -182,6 +185,7 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
         playSounds = try container.decodeIfPresent(Bool.self, forKey: .playSounds) ?? playSounds
         pushToTalkShortcut = try container.decodeIfPresent(PushToTalkShortcut.self, forKey: .pushToTalkShortcut) ?? pushToTalkShortcut
         recognitionModel = try container.decodeIfPresent(RecognitionModelPreference.self, forKey: .recognitionModel) ?? recognitionModel
+        showLiveTranscript = try container.decodeIfPresent(Bool.self, forKey: .showLiveTranscript) ?? showLiveTranscript
     }
 
     /// Локаль распознавания; неизвестное значение заменяется русским.

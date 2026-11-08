@@ -118,6 +118,10 @@ private struct VoiceSettingsView: View {
                         Text(preference.displayName).tag(preference)
                     }
                 }
+                Toggle("Показывать текст во время речи", isOn: model.binding(\.voice.showLiveTranscript))
+                Text("Если выключить, нагрузка на процессор ниже: модель не пересчитывает текст на лету. Команда появится после паузы или когда отпустите клавишу.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 LabeledContent("Модель языка") {
                     HStack {
                         Text(Self.statusText(modelStatus))

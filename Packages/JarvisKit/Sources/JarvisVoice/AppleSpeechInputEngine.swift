@@ -46,7 +46,11 @@ public final class AppleSpeechInputEngine: SpeechInputEngine {
 
     public func start(_ configuration: SpeechInputConfiguration) async throws -> AsyncStream<SpeechInputEvent> {
         await stop()
-        guard let choice = await TranscriberChoice.make(for: configuration.locale, preference: configuration.modelPreference) else {
+        guard let choice = await TranscriberChoice.make(
+            for: configuration.locale,
+            preference: configuration.modelPreference,
+            liveResults: configuration.liveResults
+        ) else {
             throw SpeechEngineError.languageNotSupported
         }
         let session = try await RecognitionSession.start(choice: choice, configuration: configuration)
@@ -92,39 +96,44 @@ enum TranscriberChoice: Sendable {
         }
     }
 
-    static func make(for locale: Locale, preference: RecognitionModelPreference) async -> TranscriberChoice? {
+    /// - Parameter liveResults: промежуточный текст во время речи (`volatileResults`).
+    ///   Без него модель выдаёт только окончательный текст и не пересчитывает его на лету.
+    static func make(
+        for locale: Locale,
+        preference: RecognitionModelPreference,
+        liveResults: Bool = true
+    ) async -> TranscriberChoice? {
         switch preference {
         case .dictation:
-            if let choice = await dictation(for: locale) { return choice }
-            return await modern(for: locale)
+            if let choice = await dictation(for: locale, liveResults: liveResults) { return choice }
+            return await modern(for: locale, liveResults: liveResults)
         case .automatic, .modern:
-            if let choice = await modern(for: locale) { return choice }
-            return await dictation(for: locale)
+            if let choice = await modern(for: locale, liveResults: liveResults) { return choice }
+            return await dictation(for: locale, liveResults: liveResults)
         }
     }
 
-    /// Промежуточные результаты нужны для живой расшифровки и определения конца фразы.
     /// Опции «отвечать как можно быстрее» (fastResults / frequentFinalization) не включаем:
     /// они заставляют модель чаще пересчитывать текст — лишняя нагрузка на процессор.
-    private static func modern(for locale: Locale) async -> TranscriberChoice? {
+    private static func modern(for locale: Locale, liveResults: Bool) async -> TranscriberChoice? {
         guard SpeechTranscriber.isAvailable, let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
             return nil
         }
         return .speech(SpeechTranscriber(
             locale: supported,
             transcriptionOptions: [],
-            reportingOptions: [.volatileResults],
+            reportingOptions: liveResults ? [.volatileResults] : [],
             attributeOptions: []
         ))
     }
 
-    private static func dictation(for locale: Locale) async -> TranscriberChoice? {
+    private static func dictation(for locale: Locale, liveResults: Bool) async -> TranscriberChoice? {
         guard let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale) else { return nil }
         return .dictation(DictationTranscriber(
             locale: supported,
             contentHints: [],
             transcriptionOptions: [],
-            reportingOptions: [.volatileResults],
+            reportingOptions: liveResults ? [.volatileResults] : [],
             attributeOptions: []
         ))
     }
@@ -263,11 +272,15 @@ final class RecognitionSession: @unchecked Sendable {
                 switch choice {
                 case .speech(let transcriber):
                     for try await result in transcriber.results {
-                        continuation.yield(.transcript(Utterance(text: String(result.text.characters), locale: locale), isFinal: result.isFinal))
+                        continuation.yield(CPUMeter.transcripts.measure {
+                            .transcript(Utterance(text: String(result.text.characters), locale: locale), isFinal: result.isFinal)
+                        })
                     }
                 case .dictation(let transcriber):
                     for try await result in transcriber.results {
-                        continuation.yield(.transcript(Utterance(text: String(result.text.characters), locale: locale), isFinal: result.isFinal))
+                        continuation.yield(CPUMeter.transcripts.measure {
+                            .transcript(Utterance(text: String(result.text.characters), locale: locale), isFinal: result.isFinal)
+                        })
                     }
                 }
             } catch is CancellationError {
@@ -284,7 +297,9 @@ final class RecognitionSession: @unchecked Sendable {
     private func startAudio(inputFormat: AVAudioFormat) throws {
         let input = audioEngine.inputNode
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            self?.process(buffer)
+            guard let self else { return }
+            // Замер нашей части работы на аудиопотоке (для разбивки «где тратится процессор»).
+            CPUMeter.audio.measure { self.process(buffer) }
         }
         configurationObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,

@@ -267,6 +267,12 @@ struct AssistantControllerTests {
         await h.controller.apply(settings: settings)
         #expect(h.input.startCount == 3)
         #expect(h.input.lastConfiguration?.modelPreference == .dictation)
+
+        #expect(h.input.lastConfiguration?.liveResults == true)
+        settings.voice.showLiveTranscript = false
+        await h.controller.apply(settings: settings)
+        #expect(h.input.startCount == 4)
+        #expect(h.input.lastConfiguration?.liveResults == false)
     }
 
     @Test("Ошибка распознавания — проблема показана, микрофон закрыт")

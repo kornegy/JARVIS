@@ -20,6 +20,9 @@ public struct UtteranceAssembler: Sendable {
         public var followUpTimeout: TimeInterval
         /// Сколько ждать последние слова после отпускания Push-to-Talk.
         public var releaseGrace: TimeInterval
+        /// Сколько ждать текст после отпускания, если его ещё нет совсем (без живого
+        /// текста модель выдаёт всё сразу, когда закончит фразу).
+        public var releaseWaitWithoutText: TimeInterval
         /// Максимальная длительность одной команды.
         public var maxCaptureDuration: TimeInterval
 
@@ -27,11 +30,13 @@ public struct UtteranceAssembler: Sendable {
             endOfSpeechSilence: TimeInterval = 1.0,
             followUpTimeout: TimeInterval = 6,
             releaseGrace: TimeInterval = 0.7,
+            releaseWaitWithoutText: TimeInterval = 2.5,
             maxCaptureDuration: TimeInterval = 20
         ) {
             self.endOfSpeechSilence = endOfSpeechSilence
             self.followUpTimeout = followUpTimeout
             self.releaseGrace = releaseGrace
+            self.releaseWaitWithoutText = releaseWaitWithoutText
             self.maxCaptureDuration = maxCaptureDuration
         }
     }
@@ -162,6 +167,9 @@ public struct UtteranceAssembler: Sendable {
         let elapsed = now - capture.startedAt
 
         if let releasedAt = capture.releasedAt {
+            if command.isEmpty {
+                return now - releasedAt >= max(timing.releaseGrace, timing.releaseWaitWithoutText) ? finish(capture) : []
+            }
             return now - max(releasedAt, capture.lastActivityAt) >= timing.releaseGrace ? finish(capture) : []
         }
         if elapsed >= timing.maxCaptureDuration {

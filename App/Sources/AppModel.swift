@@ -33,6 +33,8 @@ final class AppModel {
     @ObservationIgnored private var isPushToTalkHeld = false
 
     init(launchOptions: AppLaunchOptions) {
+        // Имя главного потока — чтобы отличать его в разбивке «где тратится процессор».
+        CPUProfiler.nameMainThread()
         let logger = JarvisLogger(category: "app")
         let directories = launchOptions.isUITesting
             ? AppDirectories(root: FileManager.default.temporaryDirectory.appending(path: "JARVIS-UITests-\(UUID().uuidString)", directoryHint: .isDirectory))
@@ -178,6 +180,15 @@ final class AppModel {
 
     /// Какая модель распознавания сейчас слушает (для строки диагностики).
     var activeSpeechModelName: String? { assistant.activeSpeechModelName }
+
+    /// Шапка отчёта о нагрузке: версия и настройки, от которых она зависит. Без личных данных.
+    var diagnosticsContext: String {
+        let mode = settings.voice.listeningMode == .wakeWord ? "фраза-активатор" : "Push-to-Talk"
+        let live = settings.voice.showLiveTranscript ? "вкл" : "выкл"
+        let speechModel = activeSpeechModelName ?? "не слушает"
+        return "JARVIS \(Bundle.main.versionDescription) · режим: \(mode) · модель: \(speechModel)"
+            + " · живой текст: \(live) · состояние: \(state.presentation.title)"
+    }
 
     func previewVoice() {
         let text = ResponseLanguage(locale: settings.voice.locale) == .english
