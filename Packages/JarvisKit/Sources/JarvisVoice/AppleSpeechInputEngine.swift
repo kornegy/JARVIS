@@ -229,7 +229,7 @@ final class RecognitionSession: @unchecked Sendable {
         session.consumeResults(of: choice, locale: configuration.locale)
         do {
             try await analyzer.start(inputSequence: inputSequence)
-            try session.startAudio(inputFormat: inputFormat)
+            try session.startAudio()
         } catch {
             await session.stop()
             throw (error as? SpeechEngineError) ?? SpeechEngineError.audioEngineFailed
@@ -294,9 +294,12 @@ final class RecognitionSession: @unchecked Sendable {
         }
     }
 
-    private func startAudio(inputFormat: AVAudioFormat) throws {
+    private func startAudio() throws {
         let input = audioEngine.inputNode
-        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+        // Формат `nil` — «текущий формат микрофона». Если передать заранее запомненный формат,
+        // а микрофон тем временем сменил частоту (подключили AirPods и т.п.), AVAudioEngine
+        // аварийно завершает приложение. Конвертер сам подстраивается под формат буферов.
+        input.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
             // Замер нашей части работы на аудиопотоке (для разбивки «где тратится процессор»).
             CPUMeter.audio.measure { self.process(buffer) }

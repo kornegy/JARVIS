@@ -20,9 +20,8 @@ final class AudioBufferConverter {
             converter = AVAudioConverter(from: inputFormat, to: outputFormat)
             // Без «прайминга», чтобы не сдвигать время относительно источника.
             converter?.primeMethod = .none
-            // Для распознавания речи (16 кГц) студийное качество пересчёта частоты не нужно:
-            // среднее заметно дешевле для процессора и не влияет на распознавание.
-            converter?.sampleRateConverterQuality = AVAudioQuality.medium.rawValue
+            // Качество пересчёта частоты не меняем: свойство поддерживается не для всех пар
+            // форматов, а ошибка в нём завершает приложение (исключение Objective-C).
         }
         guard let converter else { throw SpeechEngineError.audioEngineFailed }
 
