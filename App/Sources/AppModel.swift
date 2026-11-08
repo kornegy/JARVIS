@@ -243,6 +243,13 @@ final class AppModel {
         }
     }
 
+    /// «Системные настройки → Звук» (там выбирается микрофон для всей системы).
+    func openSoundSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Sound-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func dismissNotice() {
         notice = nil
     }

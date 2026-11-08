@@ -153,10 +153,15 @@ final class RecognitionSession: @unchecked Sendable {
     private var configurationObserver: (any NSObjectProtocol)?
     private var isStopped = false
     private var forced = false
+    // Самопроверка микрофона (под замком: пишет аудиопоток, читает проверка).
+    private var receivedBuffers = 0
+    private var heardSignal = false
+    private var silenceCheck: Task<Void, Never>?
 
     // Используются только на аудиопотоке.
     private var gate: SpeechGate<AVAudioPCMBuffer>?
     private var framePosition: Int64 = 0
+    private var meter = LevelMeter()
     private let timescale: CMTimeScale
 
     private init(
@@ -234,6 +239,7 @@ final class RecognitionSession: @unchecked Sendable {
             await session.stop()
             throw (error as? SpeechEngineError) ?? SpeechEngineError.audioEngineFailed
         }
+        session.scheduleSilenceCheck()
         return session
     }
 
@@ -325,8 +331,30 @@ final class RecognitionSession: @unchecked Sendable {
         }
     }
 
+    /// Через несколько секунд после старта: если звука не было вовсе — сказать об этом.
+    /// С Bluetooth-гарнитурами AVAudioEngine иногда отдаёт одни нули без всякой ошибки.
+    func scheduleSilenceCheck() {
+        silenceCheck = Task { [weak self] in
+            try? await Task.sleep(for: MicrophoneSignal.silenceCheckDelay)
+            guard !Task.isCancelled, let self else { return }
+            let isSilent = self.lock.withLock { !self.isStopped && (self.receivedBuffers == 0 || !self.heardSignal) }
+            if isSilent { self.eventContinuation.yield(.silentInput) }
+        }
+    }
+
     /// Вызывается на аудиопотоке для каждого буфера с микрофона. Только память, никакого диска.
     private func process(_ buffer: AVAudioPCMBuffer) {
+        let rawLevel = AudioLevel.decibels(of: buffer)
+        // Нет float-данных — уровень неизвестен; тишиной это не считаем.
+        let signal = rawLevel.map { $0 > MicrophoneSignal.digitalSilence } ?? true
+        lock.withLock {
+            receivedBuffers += 1
+            if signal { heardSignal = true }
+        }
+        if let rawLevel, let level = meter.update(rawLevel, frames: Int(buffer.frameLength), sampleRate: buffer.format.sampleRate) {
+            eventContinuation.yield(.inputLevel(level))
+        }
+
         guard let converted = try? converter.convert(buffer) else { return }
         let startFrame = framePosition
         framePosition += Int64(converted.frameLength)
@@ -336,7 +364,7 @@ final class RecognitionSession: @unchecked Sendable {
             return
         }
         // Пока пользователь явно говорит команду, пропускаем всё (уровень «0 дБ» — громко).
-        let level = isForced ? 0 : (AudioLevel.decibels(of: buffer) ?? 0)
+        let level = isForced ? 0 : (rawLevel ?? 0)
         let wasOpen = gate?.isOpen ?? false
         let chunks = gate?.process(converted, startFrame: startFrame, frameCount: Int64(converted.frameLength), level: level) ?? []
         for chunk in chunks {
@@ -357,6 +385,7 @@ final class RecognitionSession: @unchecked Sendable {
             return true
         }
         guard shouldStop else { return }
+        silenceCheck?.cancel()
         if let configurationObserver {
             NotificationCenter.default.removeObserver(configurationObserver)
         }

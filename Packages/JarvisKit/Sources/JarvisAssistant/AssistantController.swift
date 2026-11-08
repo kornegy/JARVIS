@@ -14,6 +14,8 @@ public enum AssistantProblem: Sendable, Equatable {
     case speechModelDownloadFailed
     case languageNotSupported
     case microphoneUnavailable
+    /// Микрофон включён, но звука нет (Bluetooth-гарнитура выбрана в приложении и т.п.).
+    case microphoneSilent
 
     public var message: String {
         switch self {
@@ -31,6 +33,8 @@ public enum AssistantProblem: Sendable, Equatable {
             "Этот язык не поддерживается для распознавания на устройстве. Выберите другой язык в настройках."
         case .microphoneUnavailable:
             "Не удалось запустить микрофон. Проверьте выбранное устройство в настройках."
+        case .microphoneSilent:
+            "Микрофон не передаёт звук. Для AirPods и других Bluetooth-гарнитур: в JARVIS выберите «Настройки → Голос → Микрофон: Системный по умолчанию», а гарнитуру — в «Системные настройки → Звук → Вход»."
         }
     }
 }
@@ -55,6 +59,8 @@ public final class AssistantController {
     public private(set) var lastReply: String?
     public private(set) var problem: AssistantProblem?
     public private(set) var isDownloadingModel = false
+    /// Уровень сигнала микрофона (dBFS), пока идёт захват; `nil` — неизвестен.
+    public private(set) var inputLevel: Float?
     /// Действие ждёт подтверждения пользователя (для окна «Да / Нет»).
     public private(set) var pendingConfirmation: PendingAction?
 
@@ -381,6 +387,7 @@ public final class AssistantController {
     private func stopEngine() async {
         eventsTask?.cancel()
         eventsTask = nil
+        inputLevel = nil
         if speechInput.isCapturing {
             await speechInput.stop()
             log.notice("Speech capture stopped")
@@ -405,8 +412,17 @@ public final class AssistantController {
             Task { [weak self] in
                 guard let self else { return }
                 await self.stopEngine()
+                // Bluetooth-гарнитура переключается в режим «с микрофоном» не мгновенно —
+                // даём устройству устояться, иначе перезапуск попадёт на ту же перестройку.
+                try? await Task.sleep(for: .milliseconds(500))
                 await self.reconcileListening()
             }
+        case .inputLevel(let level):
+            inputLevel = level
+            if problem == .microphoneSilent, level > MicrophoneSignal.digitalSilence { problem = nil }
+        case .silentInput:
+            log.notice("Microphone delivers no signal")
+            if problem == nil { problem = .microphoneSilent }
         case .failed(let code):
             switch code {
             case .speechRecognitionNotAuthorized: fail(.speechRecognitionDenied, code: code)

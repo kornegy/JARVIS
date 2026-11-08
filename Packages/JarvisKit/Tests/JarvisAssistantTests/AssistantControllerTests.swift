@@ -292,6 +292,22 @@ struct AssistantControllerTests {
         #expect(entries.contains { $0.action == StandardTools.quitApp && $0.outcome == .cancelledByUser })
     }
 
+    @Test("Микрофон молчит — понятная подсказка; звук появился — подсказка исчезает")
+    func silentMicrophone() async throws {
+        let h = try makeHarness(mode: .wakeWord)
+        defer { h.directory.remove() }
+        await h.controller.enable()
+
+        h.input.emit(.silentInput)
+        #expect(await waitUntil { h.controller.problem == .microphoneSilent })
+        #expect(h.controller.state == .idle(.wakeWord)) // это подсказка, а не остановка
+        #expect(h.controller.problem?.message.contains("Системный по умолчанию") == true)
+
+        h.input.emit(.inputLevel(-35))
+        #expect(await waitUntil { h.controller.inputLevel == -35 })
+        #expect(h.controller.problem == nil)
+    }
+
     @Test("Только фраза-активатор: тихое завершение по таймауту")
     func wakePhraseWithoutCommand() async throws {
         let h = try makeHarness(mode: .wakeWord)

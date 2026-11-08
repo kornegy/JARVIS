@@ -94,6 +94,22 @@ struct JarvisVoiceTests {
     }
 }
 
+@Suite("Индикатор уровня микрофона")
+struct LevelMeterTests {
+    @Test("Пик за четверть секунды, шаг 5 дБ, без повторов")
+    func peaksAndSteps() {
+        var meter = LevelMeter()
+        // 0,1 с — ещё рано.
+        #expect(meter.update(-42, frames: 1600, sampleRate: 16_000) == nil)
+        // Ещё 0,2 с, громче — отдаём пик, округлённый до 5 дБ.
+        #expect(meter.update(-31, frames: 3200, sampleRate: 16_000) == -30)
+        // Тот же уровень — без события (интерфейс не перерисовывается).
+        #expect(meter.update(-29, frames: 4000, sampleRate: 16_000) == nil)
+        // Цифровая тишина ограничивается снизу.
+        #expect(meter.update(-180, frames: 4000, sampleRate: 16_000) == -120)
+    }
+}
+
 @Suite("Ворота тишины перед распознаванием")
 struct SpeechGateTests {
     private func makeGate() -> SpeechGate<Int> {

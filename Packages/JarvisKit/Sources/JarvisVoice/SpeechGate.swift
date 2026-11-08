@@ -53,6 +53,30 @@ struct SpeechGate<Buffer> {
     }
 }
 
+/// Индикатор уровня: пиковое значение за ~¼ секунды, округлённое до 5 дБ. Событие —
+/// только когда значение изменилось, поэтому в тишине интерфейс не перерисовывается.
+struct LevelMeter {
+    static let window: Double = 0.25
+    static let step: Float = 5
+
+    private var peak: Float = -.infinity
+    private var seconds: Double = 0
+    private var lastReported: Float?
+
+    /// Новый уровень для индикатора или `nil`, если показывать нечего.
+    mutating func update(_ decibels: Float, frames: Int, sampleRate: Double) -> Float? {
+        peak = max(peak, decibels)
+        seconds += sampleRate > 0 ? Double(frames) / sampleRate : Self.window
+        guard seconds >= Self.window else { return nil }
+        let rounded = max((peak / Self.step).rounded() * Self.step, -120)
+        peak = -.infinity
+        seconds = 0
+        guard rounded != lastReported else { return nil }
+        lastReported = rounded
+        return rounded
+    }
+}
+
 /// Уровень сигнала и порог для ворот.
 enum AudioLevel {
     /// Уровень первого канала в dBFS (0 — максимум, −60 — очень тихо);
