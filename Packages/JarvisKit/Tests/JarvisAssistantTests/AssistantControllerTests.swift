@@ -425,6 +425,14 @@ struct AssistantControllerTests {
         await h.controller.apply(settings: settings)
         #expect(h.input.startCount == 4)
         #expect(h.input.lastConfiguration?.liveResults == false)
+
+        // Фразы-активаторы подсказываются модели; смена фраз перезапускает захват.
+        #expect(h.input.lastConfiguration?.vocabulary.contains("Джарвис") == true)
+        #expect(h.input.lastConfiguration?.vocabulary.contains("Привет Джарвис") == true)
+        settings.voice.wakePhrases = ["окей компьютер"]
+        await h.controller.apply(settings: settings)
+        #expect(h.input.startCount == 5)
+        #expect(h.input.lastConfiguration?.vocabulary.contains("Окей Компьютер") == true)
     }
 
     @Test("Ошибка распознавания — проблема показана, микрофон закрыт")

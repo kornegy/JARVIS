@@ -104,10 +104,11 @@ enum TranscriberChoice: Sendable {
         liveResults: Bool = true
     ) async -> TranscriberChoice? {
         switch preference {
-        case .dictation:
+        // «Автоматически» — классическая: только ей можно подсказать редкие слова («Джарвис»).
+        case .automatic, .dictation:
             if let choice = await dictation(for: locale, liveResults: liveResults) { return choice }
             return await modern(for: locale, liveResults: liveResults)
-        case .automatic, .modern:
+        case .modern:
             if let choice = await modern(for: locale, liveResults: liveResults) { return choice }
             return await dictation(for: locale, liveResults: liveResults)
         }
@@ -184,12 +185,19 @@ final class RecognitionSession: @unchecked Sendable {
     }
 
     static func start(choice: TranscriberChoice, configuration: SpeechInputConfiguration) async throws -> RecognitionSession {
-        let detector = SpeechDetector(
-            detectionOptions: SpeechDetector.DetectionOptions(sensitivityLevel: sensitivityLevel(for: configuration.sensitivity)),
-            reportResults: false
-        )
-        let modules: [any SpeechModule] = [detector, choice.module]
-        guard let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: modules) else {
+        // Детектор речи нужен только при постоянном прослушивании (экономит процессор в тишине).
+        // Когда пользователь сам нажал клавишу или кнопку, он говорит — фильтровать нечего,
+        // а детектор мог бы отрезать тихую речь.
+        var modules: [any SpeechModule] = [choice.module]
+        if configuration.continuous {
+            let detector = SpeechDetector(
+                detectionOptions: SpeechDetector.DetectionOptions(sensitivityLevel: sensitivityLevel(for: configuration.sensitivity)),
+                reportResults: false
+            )
+            modules.insert(detector, at: 0)
+        }
+        let analysisModules = modules
+        guard let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: analysisModules) else {
             throw SpeechEngineError.modelNotInstalled
         }
 
@@ -213,7 +221,18 @@ final class RecognitionSession: @unchecked Sendable {
             priority: configuration.continuous ? .utility : .userInitiated,
             modelRetention: .lingering
         )
-        let analyzer = SpeechAnalyzer(modules: modules, options: options)
+        let analyzer = SpeechAnalyzer(modules: analysisModules, options: options)
+        // Подсказка редких слов («Джарвис», фразы-активаторы) — только локальной модели.
+        // Её учитывает классическая модель; для новой подсказка безвредна.
+        if !configuration.vocabulary.isEmpty {
+            let context = AnalysisContext()
+            context.contextualStrings = [AnalysisContext.ContextualStringsTag("assistant"): configuration.vocabulary]
+            do {
+                try await analyzer.setContext(context)
+            } catch {
+                // Без подсказки распознавание всё равно работает.
+            }
+        }
         let gate: SpeechGate<AVAudioPCMBuffer>? = configuration.continuous
             ? SpeechGate(
                 thresholdDecibels: AudioLevel.threshold(forSensitivity: configuration.sensitivity),

@@ -145,4 +145,35 @@ struct SpeechGateTests {
         #expect(gate.process(3, startFrame: 400, frameCount: 100, level: -70).isEmpty)
         #expect(!gate.isOpen) // момент закрытия — сигнал выдать окончательный текст
     }
+
+    @Test("Тихий микрофон (AirPods): порог опускается к шуму, тихая речь проходит")
+    func quietMicrophone() {
+        var gate = makeGate() // настройка: −50 dBFS
+        for index in 0..<5 {
+            #expect(gate.process(index, startFrame: Int64(index * 100), frameCount: 100, level: -74).isEmpty)
+        }
+        #expect(gate.effectiveThreshold == -64)
+        // −58 dBFS тише настройки, но на 16 дБ громче шума — это речь.
+        #expect(gate.process(5, startFrame: 500, frameCount: 100, level: -58).map(\.buffer) == [3, 4, 5])
+    }
+
+    @Test("Шумная комната: порог не строже настройки")
+    func noisyRoomNeverStricter() {
+        var gate = makeGate()
+        for index in 0..<50 {
+            _ = gate.process(index, startFrame: Int64(index * 100), frameCount: 100, level: -45)
+        }
+        #expect(gate.effectiveThreshold == -50)
+        #expect(gate.isOpen)
+    }
+
+    @Test("Цифровая тишина не делает ворота сверхчувствительными")
+    func digitalSilence() {
+        var gate = makeGate()
+        for index in 0..<5 {
+            _ = gate.process(index, startFrame: Int64(index * 100), frameCount: 100, level: -180)
+        }
+        #expect(gate.effectiveThreshold == -65)
+        #expect(gate.process(5, startFrame: 500, frameCount: 100, level: -70).isEmpty)
+    }
 }

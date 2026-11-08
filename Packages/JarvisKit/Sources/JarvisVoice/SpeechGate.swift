@@ -9,6 +9,10 @@ import AVFoundation
 /// (чтобы не потерять начало слова), затем всё подряд — и ещё 1,5 с после того, как
 /// стало тихо (паузы между словами не режутся).
 ///
+/// Порог подстраивается под микрофон: ворота следят за уровнем фонового шума и, если микрофон
+/// тихий (AirPods в режиме гарнитуры, шумоподавление), открываются уже на 10 дБ выше шума.
+/// Строже настройки «Чувствительность» порог не становится никогда.
+///
 /// Чистая логика: тип буфера — параметр, поэтому ворота тестируются без звука.
 struct SpeechGate<Buffer> {
     struct Chunk {
@@ -21,8 +25,22 @@ struct SpeechGate<Buffer> {
     let hangoverFrames: Int64
     let preRollChunks: Int
 
+    /// На сколько выше фонового шума должна быть речь.
+    static var noiseMargin: Float { 10 }
+    /// Ниже этого шум не считаем: иначе почти цифровая тишина открывала бы ворота на любой шорох.
+    static var lowestNoiseFloor: Float { -75 }
+    /// Как быстро оценка шума поднимается (за фрагмент); опускается — сразу.
+    static var noiseFloorRise: Float { 0.1 }
+
     /// Пропускаются ли сейчас фрагменты (по последнему обработанному).
     private(set) var isOpen = false
+    /// Оценка фонового шума, dBFS.
+    private(set) var noiseFloor: Float
+
+    /// Порог с учётом шума: не строже настройки, но ниже для тихого микрофона.
+    var effectiveThreshold: Float {
+        min(thresholdDecibels, noiseFloor + Self.noiseMargin)
+    }
 
     private var openUntilFrame = Int64.min
     private var preRoll: [Chunk] = []
@@ -31,12 +49,15 @@ struct SpeechGate<Buffer> {
         self.thresholdDecibels = thresholdDecibels
         self.hangoverFrames = hangoverFrames
         self.preRollChunks = max(0, preRollChunks)
+        self.noiseFloor = thresholdDecibels - Self.noiseMargin
     }
 
     /// Фрагменты, которые нужно отдать анализатору (может быть пусто).
     mutating func process(_ buffer: Buffer, startFrame: Int64, frameCount: Int64, level: Float) -> [Chunk] {
         let chunk = Chunk(buffer: buffer, startFrame: startFrame)
-        if level >= thresholdDecibels {
+        // Оценка шума: опускается сразу до тишины, поднимается медленно (речь её не «утянет»).
+        noiseFloor = level < noiseFloor ? max(level, Self.lowestNoiseFloor) : noiseFloor + Self.noiseFloorRise
+        if level >= effectiveThreshold {
             openUntilFrame = startFrame + frameCount + hangoverFrames
         }
         isOpen = startFrame < openUntilFrame

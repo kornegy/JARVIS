@@ -128,6 +128,9 @@ private struct VoiceSettingsView: View {
                         Text(preference.displayName).tag(preference)
                     }
                 }
+                Text("«Автоматически» — классическая модель: ей JARVIS подсказывает своё имя и фразы-активаторы, поэтому «Джарвис» она узнаёт лучше. «Новая модель Apple» точнее на длинных фразах, но подсказки не учитывает.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Показывать текст во время речи", isOn: model.binding(\.voice.showLiveTranscript))
                 Text("Если выключить, нагрузка на процессор ниже: модель не пересчитывает текст на лету. Команда появится после паузы или когда отпустите клавишу.")
                     .font(.caption)

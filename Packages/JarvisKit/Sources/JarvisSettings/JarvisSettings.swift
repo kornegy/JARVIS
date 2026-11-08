@@ -131,7 +131,8 @@ public enum PushToTalkShortcut: String, Codable, Sendable, CaseIterable {
 
 /// Какую модель распознавания Apple предпочитать (обе работают только на устройстве).
 public enum RecognitionModelPreference: String, Codable, Sendable, CaseIterable {
-    /// Новая модель (`SpeechTranscriber`), если поддерживает язык, иначе классическая.
+    /// Классическая модель (её можно подсказать: она лучше узнаёт «Джарвис» и фразы-активаторы),
+    /// если поддерживает язык, иначе новая.
     case automatic
     /// Классическая модель системной диктовки (`DictationTranscriber`).
     case dictation

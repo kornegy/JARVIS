@@ -4,6 +4,15 @@ import JarvisAI
 import JarvisCore
 @testable import JarvisAssistant
 
+@Suite("Подсказка модели распознавания")
+struct RecognitionVocabularyTests {
+    @Test("Имя ассистента и фразы-активаторы, с заглавной буквы, без повторов")
+    func vocabulary() {
+        let words = RecognitionVocabulary.make(wakePhrases: ["привет джарвис", "hey jarvis", "  "])
+        #expect(words == ["Джарвис", "Jarvis", "Привет Джарвис", "Hey Jarvis"])
+    }
+}
+
 @Suite("Сборка команды из распознанной речи")
 struct UtteranceAssemblerTests {
     private func makeAssembler() -> UtteranceAssembler {
