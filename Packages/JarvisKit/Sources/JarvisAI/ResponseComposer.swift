@@ -92,6 +92,11 @@ public struct ResponseComposer {
         return text
     }
 
+    /// Ответ о ходе действия: не нашлось, нужно подтверждение, отказ и т.п.
+    public func text(for reply: ActionReply) -> String {
+        language == .english ? reply.english : reply.russian(formal: personality.isFormal)
+    }
+
     private mutating func pick(_ options: [String]) -> String {
         guard !options.isEmpty else { return "" }
         let index = Int.random(in: 0..<options.count, using: &random)
@@ -146,9 +151,9 @@ enum RussianReplies {
             )
         case .capabilities:
             return ReplyLines(
-                casual: ["Пока я умею немного: подскажу время и дату, поставлю микрофон на паузу, включу приватный режим и выключусь по команде. Приложения, файлы и настройки Mac — уже в следующей версии."],
-                formal: ["Сейчас я могу подсказать время и дату, поставить микрофон на паузу, включить приватный режим и выключиться по команде. Управление приложениями, файлами и настройками Mac появится в следующей версии."],
-                brief: ["Время, дата, пауза микрофона, приватный режим. Остальное — скоро."]
+                casual: ["Открываю и закрываю приложения, открываю сайты и ищу в интернете, меняю громкость, подсказываю время и дату, ставлю микрофон на паузу и включаю приватный режим. Файлы и окна — в следующих версиях."],
+                formal: ["Я могу открывать и закрывать приложения, открывать сайты и искать в интернете, менять громкость, подсказывать время и дату, ставить микрофон на паузу и включать приватный режим. Работа с файлами и окнами появится в следующих версиях."],
+                brief: ["Приложения, сайты, поиск, громкость, время и дата. Файлы — скоро."]
             )
         case .cancel:
             return ReplyLines(
@@ -184,6 +189,18 @@ enum RussianReplies {
             return enabled
                 ? ReplyLines(casual: ["Приватный режим включён: никакой сети."], brief: ["Приватный режим включён."], quips: ["Тсс."])
                 : ReplyLines(casual: ["Приватный режим выключен."], brief: ["Приватный режим выключен."])
+        case .openApp:
+            return ReplyLines(casual: ["Открываю {value}.", "Запускаю {value}."], brief: ["{value}."])
+        case .quitApp:
+            return ReplyLines(casual: ["Закрываю {value}."], brief: ["Закрываю."])
+        case .openWebsite:
+            return ReplyLines(casual: ["Открываю {value}."], brief: ["{value}."])
+        case .webSearch:
+            return ReplyLines(casual: ["Ищу «{value}».", "Сейчас поищу «{value}»."], brief: ["Ищу."])
+        case .setVolume, .changeVolume:
+            return ReplyLines(casual: ["Громкость {value}."], brief: ["{value}."])
+        case .setMuted(let muted):
+            return ReplyLines(casual: [muted ? "Звук выключен." : "Звук включён."])
         case .notYetSupported:
             return ReplyLines(
                 casual: ["{feature} я научусь в следующей версии."],
@@ -202,14 +219,13 @@ enum RussianReplies {
 
     static func featureName(_ feature: Feature) -> String {
         switch feature {
-        case .apps: "Управлять приложениями"
         case .files: "Работать с файлами"
-        case .system: "Управлять настройками Mac"
+        case .system: "Управлять этой настройкой Mac"
         case .reminders: "Ставить напоминания"
         case .mail: "Работать с почтой"
         case .calendar: "Смотреть календарь"
-        case .web: "Открывать сайты и искать в интернете"
         case .media: "Управлять музыкой"
+        case .multiStep: "Выполнять несколько действий одной командой"
         }
     }
 }
@@ -230,8 +246,8 @@ enum EnglishReplies {
             return ReplyLines(casual: ["Anytime.", "You got it!", "No problem."], formal: ["Always glad to help."], brief: ["Sure."])
         case .capabilities:
             return ReplyLines(
-                casual: ["Not much yet: I can tell the time and date, pause the microphone, turn on privacy mode and switch myself off. Apps, files and Mac settings are coming in the next version."],
-                brief: ["Time, date, microphone pause, privacy mode. More soon."]
+                casual: ["I open and quit apps, open websites and search the web, change the volume, tell the time and date, pause the microphone and turn on privacy mode. Files and windows are coming next."],
+                brief: ["Apps, websites, search, volume, time and date. Files soon."]
             )
         case .cancel:
             return ReplyLines(casual: ["Okay, cancelled.", "Sure, forget it."], brief: ["Cancelled."])
@@ -245,6 +261,18 @@ enum EnglishReplies {
             return ReplyLines(casual: ["Pausing the microphone."], brief: ["Paused."])
         case .setPrivacyMode(let enabled):
             return ReplyLines(casual: [enabled ? "Privacy mode is on: no network." : "Privacy mode is off."])
+        case .openApp:
+            return ReplyLines(casual: ["Opening {value}."], brief: ["{value}."])
+        case .quitApp:
+            return ReplyLines(casual: ["Quitting {value}."], brief: ["Quitting."])
+        case .openWebsite:
+            return ReplyLines(casual: ["Opening {value}."], brief: ["{value}."])
+        case .webSearch:
+            return ReplyLines(casual: ["Searching for “{value}”."], brief: ["Searching."])
+        case .setVolume, .changeVolume:
+            return ReplyLines(casual: ["Volume {value}."], brief: ["{value}."])
+        case .setMuted(let muted):
+            return ReplyLines(casual: [muted ? "Sound is off." : "Sound is on."])
         case .notYetSupported:
             return ReplyLines(casual: ["I'll learn to {feature} in the next version."], brief: ["Can't do that yet."], quips: ["Already practicing."])
         case .unknown:
@@ -257,14 +285,13 @@ enum EnglishReplies {
 
     static func featureName(_ feature: Feature) -> String {
         switch feature {
-        case .apps: "manage apps"
         case .files: "work with files"
-        case .system: "change Mac settings"
+        case .system: "change this Mac setting"
         case .reminders: "set reminders"
         case .mail: "work with mail"
         case .calendar: "check your calendar"
-        case .web: "open websites and search the web"
         case .media: "control music"
+        case .multiStep: "do several things in one command"
         }
     }
 }

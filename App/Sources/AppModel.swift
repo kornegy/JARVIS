@@ -6,6 +6,7 @@ import JarvisAI
 import JarvisAssistant
 import JarvisCore
 import JarvisSettings
+import JarvisMac
 import JarvisTools
 import JarvisVoice
 
@@ -29,6 +30,7 @@ final class AppModel {
     private let speechInput: AppleSpeechInputEngine
     private let speechOutput: SystemSpeechSynthesizer
     private let hotKey = PushToTalkHotKey()
+    private let confirmationPanel = ConfirmationPanelController()
     private let log = JarvisLogger(category: "app")
     @ObservationIgnored private var isPushToTalkHeld = false
 
@@ -56,9 +58,10 @@ final class AppModel {
             detailLevel: loaded.settings.privacy.auditDetail
         )
 
-        let registry: ToolRegistry
+        var registry: ToolRegistry
         do {
             registry = try BuiltInTools.makeRegistry()
+            try MacTools.register(into: &registry)
         } catch {
             logger.fault("Built-in tools failed to register", .error(error))
             registry = ToolRegistry()
@@ -91,6 +94,9 @@ final class AppModel {
         }
         assistant.onActivityRecorded = { [weak self] in
             Task { await self?.refreshActivity() }
+        }
+        assistant.onConfirmationChanged = { [weak self] pending in
+            self?.updateConfirmationPanel(pending)
         }
         hotKey.onPress = { [weak self] in self?.pushToTalkDown() }
         hotKey.onRelease = { [weak self] in self?.pushToTalkUp() }
@@ -156,6 +162,19 @@ final class AppModel {
 
     func submitCommand(_ text: String) {
         Task { await assistant.submitTypedCommand(text) }
+    }
+
+    /// Показать или спрятать окно подтверждения «Да / Нет».
+    private func updateConfirmationPanel(_ pending: PendingAction?) {
+        guard let pending else {
+            confirmationPanel.hide()
+            return
+        }
+        confirmationPanel.show(
+            pending,
+            onConfirm: { [weak self] in Task { await self?.assistant.confirmPendingAction() } },
+            onDecline: { [weak self] in Task { await self?.assistant.declinePendingAction() } }
+        )
     }
 
     func retryAssistant() {

@@ -64,6 +64,16 @@ private struct GeneralSettingsView: View {
                 }
                 Toggle("Показывать окно JARVIS при запуске", isOn: model.binding(\.general.showMainWindowAtLaunch))
             }
+            Section("Интернет") {
+                Picker("Поиск в интернете", selection: model.binding(\.general.searchEngine)) {
+                    ForEach(SearchEngine.allCases, id: \.self) { engine in
+                        Text(engine.displayName).tag(engine)
+                    }
+                }
+                Text("По команде «найди в интернете…» JARVIS открывает страницу поиска в вашем браузере. Сам JARVIS в интернет не ходит.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .onAppear { nameDraft = model.settings.general.assistantName }

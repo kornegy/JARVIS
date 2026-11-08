@@ -232,7 +232,8 @@ struct CommandField: View {
                 text = ""
                 model.submitCommand(command)
             }
-            .disabled(!model.assistant.machine.canHandle(.commandReceived))
+            // Пока JARVIS ждёт подтверждения, сюда можно написать «да» или «нет».
+            .disabled(!model.assistant.machine.canHandle(.commandReceived) && model.assistant.state != .awaitingConfirmation)
             .accessibilityIdentifier("command.field")
     }
 }

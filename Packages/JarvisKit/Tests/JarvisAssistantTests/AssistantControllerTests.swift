@@ -3,6 +3,7 @@ import Testing
 import JarvisAI
 import JarvisCore
 import JarvisSettings
+import JarvisTools
 @testable import JarvisAssistant
 
 /// Интеграционные тесты оркестратора: настоящие сборщик команд, правила, инструменты и
@@ -24,7 +25,9 @@ struct AssistantControllerTests {
     private func makeHarness(
         mode: ListeningMode = .pushToTalk,
         microphone: FakePermission = FakePermission(),
-        modelStatus: SpeechModelStatus = .installed
+        modelStatus: SpeechModelStatus = .installed,
+        extraTools: [any Tool] = [],
+        confirmationTimeout: Duration = .seconds(30)
     ) throws -> Harness {
         var settings = JarvisSettings()
         settings.voice.listeningMode = mode
@@ -32,8 +35,10 @@ struct AssistantControllerTests {
         let directory = try TemporaryDirectory()
         let audit = AuditLog(directory: directory.url)
         let utc = TimeZone(identifier: "UTC") ?? .current
+        var registry = try BuiltInTools.makeRegistry(now: { fixedNoon }, timeZone: utc)
+        for tool in extraTools { try registry.register(tool) }
         let processor = CommandProcessor(
-            registry: try BuiltInTools.makeRegistry(now: { fixedNoon }, timeZone: utc),
+            registry: registry,
             auditLog: audit,
             random: SeededRandomNumberGenerator(seed: 3)
         )
@@ -51,7 +56,8 @@ struct AssistantControllerTests {
             sounds: sounds,
             processor: processor,
             auditLog: audit,
-            now: { clock.time }
+            now: { clock.time },
+            confirmationTimeout: confirmationTimeout
         )
         return Harness(
             controller: controller, input: input, output: output, microphone: microphone,
@@ -154,6 +160,136 @@ struct AssistantControllerTests {
         #expect(await waitUntil { h.output.spoken == ["Сейчас 12:00."] })
         #expect(await waitUntil { h.controller.state == .idle(.wakeWord) })
         #expect(h.input.isCapturing) // в режиме wake word микрофон остаётся включён
+    }
+
+    @Test("Голосом: «закрой сафари» → вопрос → «да» → действие выполнено")
+    func voiceConfirmationYes() async throws {
+        let quit = FakeQuitTool()
+        let h = try makeHarness(mode: .wakeWord, extraTools: [quit])
+        defer { h.directory.remove() }
+        await h.controller.enable()
+
+        h.input.say("Привет, Джарвис, закрой сафари")
+        #expect(await waitUntil { h.controller.state == .listening })
+        h.clock.advance(1.2)
+        h.controller.tick()
+
+        #expect(await waitUntil { h.controller.state == .awaitingConfirmation })
+        #expect(h.controller.pendingConfirmation?.summary == "закрыть «сафари»")
+        #expect(await waitUntil { h.output.spoken == ["Точно закрыть «сафари»?"] })
+        // Микрофон для ответа включается после вопроса и слушает всё (даже тихое «да»).
+        #expect(await waitUntil { h.input.forcedListening })
+        #expect(quit.runCount == 0)
+
+        h.input.say("да")
+        #expect(await waitUntil { h.controller.liveTranscript == "да" })
+        h.clock.advance(1.2)
+        h.controller.tick()
+
+        #expect(await waitUntil { quit.runCount == 1 })
+        #expect(await waitUntil { h.output.spoken.last == "Закрываю Safari." })
+        #expect(await waitUntil { h.controller.state == .idle(.wakeWord) })
+        #expect(h.controller.pendingConfirmation == nil)
+        let entries = try await h.audit.recentEntries()
+        #expect(entries.contains { $0.action == StandardTools.quitApp && $0.outcome == .succeeded && $0.confirmationRequired })
+    }
+
+    @Test("Голосом «нет» — ничего не выполняется")
+    func voiceConfirmationNo() async throws {
+        let quit = FakeQuitTool()
+        let h = try makeHarness(mode: .wakeWord, extraTools: [quit])
+        defer { h.directory.remove() }
+        await h.controller.enable()
+
+        h.input.say("Привет, Джарвис, закрой сафари")
+        #expect(await waitUntil { h.controller.state == .listening })
+        h.clock.advance(1.2)
+        h.controller.tick()
+        #expect(await waitUntil { h.output.spoken.count == 1 })
+        #expect(await waitUntil { h.input.forcedListening })
+
+        h.input.say("нет, не надо")
+        #expect(await waitUntil { h.controller.liveTranscript == "нет не надо" || h.controller.liveTranscript == "нет, не надо" })
+        h.clock.advance(1.2)
+        h.controller.tick()
+
+        #expect(await waitUntil { h.output.spoken.last == "Хорошо, не делаю." })
+        #expect(await waitUntil { h.controller.state == .idle(.wakeWord) })
+        #expect(quit.runCount == 0)
+        let entries = try await h.audit.recentEntries()
+        #expect(entries.contains { $0.action == StandardTools.quitApp && $0.outcome == .cancelledByUser })
+    }
+
+    @Test("Текстовая команда: вопрос без голоса, окно подтверждения, кнопка «Да»")
+    func typedConfirmationButton() async throws {
+        let quit = FakeQuitTool()
+        let h = try makeHarness(extraTools: [quit])
+        defer { h.directory.remove() }
+        await h.controller.enable()
+        var prompts: [PendingAction?] = []
+        h.controller.onConfirmationChanged = { prompts.append($0) }
+
+        await h.controller.submitTypedCommand("закрой сафари")
+        #expect(h.controller.state == .awaitingConfirmation)
+        #expect(h.controller.lastReply == "Точно закрыть «сафари»?")
+        #expect(h.output.spoken.isEmpty)
+        #expect(!h.input.isCapturing)
+        #expect(prompts.count == 1)
+
+        await h.controller.confirmPendingAction()
+        #expect(quit.runCount == 1)
+        #expect(h.controller.lastReply == "Закрываю Safari.")
+        #expect(h.controller.state == .idle(.pushToTalk))
+        #expect(prompts.count == 2)
+        #expect(prompts.last == .some(nil))
+    }
+
+    @Test("Текстом «нет» и кнопкой «Нет» — отказ")
+    func typedDecline() async throws {
+        let quit = FakeQuitTool()
+        let h = try makeHarness(extraTools: [quit])
+        defer { h.directory.remove() }
+        await h.controller.enable()
+
+        await h.controller.submitTypedCommand("закрой сафари")
+        await h.controller.submitTypedCommand("нет")
+        #expect(h.controller.lastReply == "Хорошо, не делаю.")
+
+        await h.controller.submitTypedCommand("закрой сафари")
+        await h.controller.declinePendingAction()
+        #expect(h.controller.lastReply == "Хорошо, не делаю.")
+        #expect(quit.runCount == 0)
+        #expect(h.controller.state == .idle(.pushToTalk))
+    }
+
+    @Test("Нет ответа 30 секунд — действие отменяется")
+    func confirmationTimeout() async throws {
+        let quit = FakeQuitTool()
+        let h = try makeHarness(extraTools: [quit], confirmationTimeout: .milliseconds(100))
+        defer { h.directory.remove() }
+        await h.controller.enable()
+
+        await h.controller.submitTypedCommand("закрой сафари")
+        #expect(h.controller.state == .awaitingConfirmation)
+        #expect(await waitUntil { h.controller.state == .idle(.pushToTalk) })
+        #expect(h.controller.lastReply == "Не дождался ответа — ничего не делаю.")
+        #expect(quit.runCount == 0)
+    }
+
+    @Test("Выключение во время вопроса отменяет действие")
+    func disableWhileAwaiting() async throws {
+        let quit = FakeQuitTool()
+        let h = try makeHarness(extraTools: [quit])
+        defer { h.directory.remove() }
+        await h.controller.enable()
+
+        await h.controller.submitTypedCommand("закрой сафари")
+        await h.controller.disable()
+        #expect(h.controller.pendingConfirmation == nil)
+        await h.controller.confirmPendingAction()
+        #expect(quit.runCount == 0)
+        let entries = try await h.audit.recentEntries()
+        #expect(entries.contains { $0.action == StandardTools.quitApp && $0.outcome == .cancelledByUser })
     }
 
     @Test("Только фраза-активатор: тихое завершение по таймауту")

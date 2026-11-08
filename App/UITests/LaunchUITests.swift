@@ -1,6 +1,6 @@
 import XCTest
 
-/// UI-тесты: запуск, включение/выключение, текстовая команда.
+/// UI-тесты: запуск, включение/выключение, текстовая команда, окно подтверждения.
 /// Данные UI-тестов пишутся во временную папку (`--ui-testing`), автозапуск и горячая клавиша
 /// не трогаются; режим по умолчанию — Push-to-Talk, поэтому микрофон в тестах не используется.
 final class LaunchUITests: XCTestCase {
@@ -69,6 +69,43 @@ final class LaunchUITests: XCTestCase {
         XCTAssertTrue(replied, "Нет ответа на текстовую команду")
         let replyText = Self.text(of: reply)
         XCTAssertTrue(replyText.hasPrefix("Сейчас"), "Неожиданный ответ: \(replyText)")
+    }
+
+    @MainActor
+    func testQuittingAnAppAsksForConfirmationAndNoKeepsItRunning() throws {
+        continueAfterFailure = false
+        let calculator = XCUIApplication(bundleIdentifier: "com.apple.calculator")
+        calculator.launch()
+        defer { calculator.terminate() }
+
+        let app = launchApp()
+        defer { app.terminate() }
+
+        let power = app.buttons["assistant.power"]
+        let powerExists = power.waitForExistence(timeout: 30)
+        XCTAssertTrue(powerExists, "Нет кнопки включения")
+        power.click()
+
+        let field = app.textFields["command.field"]
+        let fieldEnabled = Self.wait(timeout: 10) { field.exists && field.isEnabled }
+        XCTAssertTrue(fieldEnabled, "Поле команды недоступно после включения")
+        field.click()
+        field.typeText("quit calculator")
+        field.typeKey(.return, modifierFlags: [])
+
+        // Категория 2: сначала окно подтверждения с точным названием приложения.
+        let decline = app.buttons["confirmation.decline"]
+        let asked = decline.waitForExistence(timeout: 15)
+        XCTAssertTrue(asked, "Нет окна подтверждения")
+        XCTAssertTrue(app.buttons["confirmation.confirm"].exists, "Нет кнопки «Да»")
+        decline.click()
+
+        let reply = app.staticTexts["assistant.reply"]
+        let declined = Self.wait(timeout: 10) { reply.exists && Self.text(of: reply) == "Хорошо, не делаю." }
+        let replyText = reply.exists ? Self.text(of: reply) : "<нет ответа>"
+        XCTAssertTrue(declined, "Неожиданный ответ: \(replyText)")
+        XCTAssertFalse(app.buttons["confirmation.decline"].exists, "Окно подтверждения не закрылось")
+        XCTAssertNotEqual(calculator.state, .notRunning, "Калькулятор закрылся без подтверждения")
     }
 
     @MainActor

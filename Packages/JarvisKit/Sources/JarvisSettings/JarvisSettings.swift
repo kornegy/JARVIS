@@ -72,15 +72,18 @@ public struct GeneralSettings: Codable, Equatable, Sendable {
     public var assistantName = "Джарвис"
     /// Показывать мини-окно при запуске приложения.
     public var showMainWindowAtLaunch = true
+    /// Где искать по команде «найди в интернете». Поиск открывается в браузере пользователя.
+    public var searchEngine: SearchEngine = .google
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case assistantName, showMainWindowAtLaunch }
+    enum CodingKeys: String, CodingKey { case assistantName, showMainWindowAtLaunch, searchEngine }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         assistantName = try container.decodeIfPresent(String.self, forKey: .assistantName) ?? assistantName
         showMainWindowAtLaunch = try container.decodeIfPresent(Bool.self, forKey: .showMainWindowAtLaunch) ?? showMainWindowAtLaunch
+        searchEngine = (try? container.decodeIfPresent(SearchEngine.self, forKey: .searchEngine)) ?? searchEngine
     }
 
     static func normalizedName(_ name: String) -> String {
@@ -89,6 +92,23 @@ public struct GeneralSettings: Codable, Equatable, Sendable {
             .trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return GeneralSettings().assistantName }
         return String(trimmed.prefix(maxNameLength))
+    }
+}
+
+/// Поисковая система для «найди в интернете».
+public enum SearchEngine: String, Codable, Sendable, CaseIterable {
+    case google
+    case yandex
+    case duckduckgo
+    case bing
+
+    public var displayName: String {
+        switch self {
+        case .google: "Google"
+        case .yandex: "Яндекс"
+        case .duckduckgo: "DuckDuckGo"
+        case .bing: "Bing"
+        }
     }
 }
 

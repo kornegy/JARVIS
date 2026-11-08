@@ -58,7 +58,9 @@ struct ResponseComposerTests {
     func everyIntentHasReply() {
         let intents: [Intent] = [
             .greeting, .thanks, .capabilities, .cancel, .currentTime, .currentDate, .disableAssistant,
-            .pauseMicrophone, .setPrivacyMode(true), .setPrivacyMode(false), .notYetSupported(.apps), .unknown,
+            .pauseMicrophone, .setPrivacyMode(true), .setPrivacyMode(false), .notYetSupported(.multiStep), .unknown,
+            .openApp("x"), .quitApp("x"), .openWebsite("x"), .webSearch("x"), .setVolume(5), .changeVolume(.up),
+            .setMuted(true), .setMuted(false),
         ]
         for language in [ResponseLanguage.russian, .english] {
             var replies = composer(Personality(), language)
@@ -68,6 +70,28 @@ struct ResponseComposerTests {
                 #expect(!reply.contains("{"))
             }
             #expect(replies.reply(to: .empty).isEmpty)
+        }
+    }
+
+    @Test("Сообщения о действиях на обоих языках; вопрос подтверждения без «да» и «нет»")
+    func actionReplies() {
+        let russian = composer(Personality(humor: 0, verbosity: 0.5, formality: 0))
+        let english = composer(Personality(), .english)
+        #expect(russian.text(for: .confirmationQuestion("закрыть «Safari»")) == "Точно закрыть «Safari»?")
+        #expect(english.text(for: .confirmationQuestion("quit “Safari”")) == "Should I quit “Safari”?")
+        for reply in [ActionReply.confirmationQuestion("закрыть «Safari»"), .confirmationQuestion("quit Safari")] {
+            for text in [russian.text(for: reply), english.text(for: reply)] {
+                #expect(ConfirmationAnswer.parse(text) == nil)
+            }
+        }
+        let all: [ActionReply] = [
+            .appNotFound("X"), .siteNotFound("X"), .notRunning("X"), .protectedApp("X"), .actionFailed("X"), .unsupported,
+            .confirmationQuestion("X"), .confirmationRequiredPhysically("X"), .declined, .timedOut,
+            .answerNotUnderstood, .failure,
+        ]
+        for reply in all {
+            #expect(!russian.text(for: reply).isEmpty)
+            #expect(!english.text(for: reply).isEmpty)
         }
     }
 
