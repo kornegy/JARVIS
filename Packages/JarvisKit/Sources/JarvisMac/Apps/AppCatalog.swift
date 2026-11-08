@@ -44,6 +44,9 @@ public final class AppCatalog: Sendable {
             URL(filePath: "/Applications/Utilities", directoryHint: .isDirectory),
             URL(filePath: "/System/Applications", directoryHint: .isDirectory),
             URL(filePath: "/System/Applications/Utilities", directoryHint: .isDirectory),
+            // Safari и часть системных приложений на новых macOS лежат в защищённом «криптексе»,
+            // а в /Applications — только ссылка (или её нет вовсе).
+            URL(filePath: "/System/Cryptexes/App/System/Applications", directoryHint: .isDirectory),
             FileManager.default.homeDirectoryForCurrentUser.appending(path: "Applications", directoryHint: .isDirectory),
         ]
     }
@@ -88,7 +91,8 @@ public final class AppCatalog: Sendable {
         var result: [InstalledApp] = []
 
         func add(_ url: URL) {
-            let path = url.standardizedFileURL.path
+            // Ссылка и настоящее приложение — одно и то же приложение.
+            let path = url.resolvingSymlinksInPath().standardizedFileURL.path
             guard !seen.contains(path), let app = makeApp(at: url) else { return }
             seen.insert(path)
             result.append(app)

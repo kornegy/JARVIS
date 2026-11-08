@@ -329,7 +329,10 @@ private enum Lexicon {
     static let calendar = ["календар", "запланир", "встреч", "расписан", "calendar", "schedule", "meeting", "agenda"]
     static let reminders = ["напомн", "напоминан", "remind"]
     static let media = ["музык", "песн", "трек", "плейлист", "music", "song", "playlist"]
-    static let system = ["громк", "ярк", "вайфа", "wifi", "блютуз", "bluetooth", "volume", "brightness", "буфер", "clipboard"]
+    static let system = [
+        "громк", "ярк", "ярч", "вайфа", "wifi", "блютуз", "bluetooth", "volume", "brightness", "brighter", "dimmer",
+        "буфер", "clipboard",
+    ]
     static let files = ["файл", "папк", "документ", "pdf", "скачан", "загрузк", "file", "folder", "document", "download"]
     static let search = ["найди", "найти", "поищи", "ищи", "find", "search"]
 

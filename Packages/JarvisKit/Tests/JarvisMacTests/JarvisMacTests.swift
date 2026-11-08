@@ -9,12 +9,25 @@ struct AppCatalogTests {
     private let catalog = AppCatalog()
 
     @Test("Стандартные приложения macOS находятся по разным названиям", arguments: [
-        ("Safari", "Safari"), ("сафари", "Safari"), ("калькулятор", "Calculator"), ("finder", "Finder"),
+        ("калькулятор", "Calculator"), ("Calculator", "Calculator"), ("finder", "Finder"),
+        ("TextEdit", "TextEdit"), ("текстэдит", "TextEdit"), ("заметки", "Notes"),
     ])
     func findsSystemApps(spoken: String, bundleName: String) {
         let app = catalog.find(spoken)
         #expect(app != nil)
         #expect(app?.url.deletingPathExtension().lastPathComponent == bundleName)
+    }
+
+    /// Safari есть не во всех образах macOS для CI; где он есть — должен находиться,
+    /// в том числе по ссылке в /Applications или в системном «криптексе».
+    @Test(
+        "Safari находится, где бы он ни лежал",
+        .enabled(if: ["/Applications/Safari.app", "/System/Cryptexes/App/System/Applications/Safari.app"]
+            .contains { FileManager.default.fileExists(atPath: $0) })
+    )
+    func findsSafari() {
+        #expect(catalog.find("сафари")?.url.deletingPathExtension().lastPathComponent == "Safari")
+        #expect(catalog.find("Safari") != nil)
     }
 
     @Test("Выдуманное приложение не находится")
