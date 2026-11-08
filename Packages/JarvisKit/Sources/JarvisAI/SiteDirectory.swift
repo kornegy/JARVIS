@@ -6,8 +6,8 @@ import Foundation
 public enum SiteDirectory {
     /// Адрес сайта по тому, как его назвал пользователь; `nil` — непонятно, что открывать.
     public static func url(for spokenName: String) -> URL? {
-        if let domain = domain(in: spokenName) {
-            return URL(string: "https://\(domain)")
+        if let address = Self.domain(in: spokenName) {
+            return URL(string: "https://\(address)")
         }
         let normalized = TextNormalizer.normalize(spokenName)
         guard !normalized.isEmpty else { return nil }

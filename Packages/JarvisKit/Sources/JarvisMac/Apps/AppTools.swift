@@ -57,15 +57,16 @@ enum Workspace {
         return running.first { String($0.processIdentifier) == best.id }
     }
 
-    /// Открыть (или вывести на передний план) приложение. `false` — macOS не смогла.
-    static func launch(_ url: URL) async -> Bool {
+    /// Открыть (или вывести на передний план) приложение. `false` — приложения уже нет на диске.
+    ///
+    /// Без обработчика завершения: замыкание, созданное на главном потоке, macOS вызвала бы
+    /// с другого потока, а Swift 6 считает это нарушением изоляции и завершает приложение.
+    static func launch(_ url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        return await withCheckedContinuation { continuation in
-            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
-                continuation.resume(returning: error == nil)
-            }
-        }
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration, completionHandler: nil)
+        return true
     }
 
     /// Попросить приложение завершиться (как ⌘Q: оно может спросить о несохранённом).

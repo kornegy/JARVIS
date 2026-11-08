@@ -32,16 +32,16 @@ public enum AppNameMatcher {
         for candidate in candidates {
             for name in candidate.names {
                 let normalizedName = TextNormalizer.normalize(name)
-                let score = queries.map { score(query: $0, name: normalizedName) }.max() ?? 0
-                guard score >= minimumScore else { continue }
+                let nameScore = queries.map { Self.score(query: $0, name: normalizedName) }.max() ?? 0
+                guard nameScore >= minimumScore else { continue }
                 let length = normalizedName.count
                 if let current = best {
                     // Выше оценка — лучше; при равной — короче имя (точнее совпадение).
-                    if score > current.score || (score == current.score && length < current.nameLength) {
-                        best = (candidate, score, length)
+                    if nameScore > current.score || (nameScore == current.score && length < current.nameLength) {
+                        best = (candidate, nameScore, length)
                     }
                 } else {
-                    best = (candidate, score, length)
+                    best = (candidate, nameScore, length)
                 }
             }
         }
