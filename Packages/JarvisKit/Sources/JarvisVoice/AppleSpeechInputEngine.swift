@@ -163,6 +163,7 @@ final class RecognitionSession: @unchecked Sendable {
     private var gate: SpeechGate<AVAudioPCMBuffer>?
     private var framePosition: Int64 = 0
     private var meter = LevelMeter()
+    private var gain: AutomaticGain?
     private let timescale: CMTimeScale
 
     private init(
@@ -172,7 +173,8 @@ final class RecognitionSession: @unchecked Sendable {
         analyzer: SpeechAnalyzer,
         audioEngine: AVAudioEngine,
         converter: AudioBufferConverter,
-        gate: SpeechGate<AVAudioPCMBuffer>?
+        gate: SpeechGate<AVAudioPCMBuffer>?,
+        gain: AutomaticGain?
     ) {
         self.events = events
         self.eventContinuation = eventContinuation
@@ -181,6 +183,7 @@ final class RecognitionSession: @unchecked Sendable {
         self.audioEngine = audioEngine
         self.converter = converter
         self.gate = gate
+        self.gain = gain
         self.timescale = CMTimeScale(converter.outputFormat.sampleRate.rounded())
     }
 
@@ -247,7 +250,8 @@ final class RecognitionSession: @unchecked Sendable {
             analyzer: analyzer,
             audioEngine: audioEngine,
             converter: AudioBufferConverter(outputFormat: analyzerFormat),
-            gate: gate
+            gate: gate,
+            gain: configuration.automaticGain ? AutomaticGain() : nil
         )
 
         session.consumeResults(of: choice, locale: configuration.locale)
@@ -374,7 +378,14 @@ final class RecognitionSession: @unchecked Sendable {
             eventContinuation.yield(.inputLevel(level))
         }
 
-        guard let converted = try? converter.convert(buffer) else { return }
+        // Тихий микрофон усиливаем для модели; ворота и индикатор видят исходный уровень.
+        var analyzed = buffer
+        if let rawLevel, let multiplier = gain?.update(level: rawLevel), multiplier > 1.01,
+           let boosted = AudioLevel.amplified(buffer, by: multiplier) {
+            analyzed = boosted
+        }
+
+        guard let converted = try? converter.convert(analyzed) else { return }
         let startFrame = framePosition
         framePosition += Int64(converted.frameLength)
 

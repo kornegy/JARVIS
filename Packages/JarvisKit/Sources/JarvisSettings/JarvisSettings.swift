@@ -182,13 +182,15 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
     /// Показывать текст во время речи. Выключение снижает нагрузку: модель не
     /// пересчитывает текст на лету, команда появляется после паузы или отпускания клавиши.
     public var showLiveTranscript = true
+    /// Усиливать тихий микрофон перед распознаванием (микрофон AirPods на Mac очень тихий).
+    public var automaticGain = true
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case listeningMode, wakePhrases, recognitionLocale, inputDeviceUID, microphoneSensitivity
         case endOfSpeechSilenceSeconds, voiceIdentifier, speechRate, speechVolume
-        case speakResponses, playSounds, pushToTalkShortcut, recognitionModel, showLiveTranscript
+        case speakResponses, playSounds, pushToTalkShortcut, recognitionModel, showLiveTranscript, automaticGain
     }
 
     public init(from decoder: any Decoder) throws {
@@ -207,6 +209,7 @@ public struct VoiceSettings: Codable, Equatable, Sendable {
         pushToTalkShortcut = try container.decodeIfPresent(PushToTalkShortcut.self, forKey: .pushToTalkShortcut) ?? pushToTalkShortcut
         recognitionModel = try container.decodeIfPresent(RecognitionModelPreference.self, forKey: .recognitionModel) ?? recognitionModel
         showLiveTranscript = try container.decodeIfPresent(Bool.self, forKey: .showLiveTranscript) ?? showLiveTranscript
+        automaticGain = try container.decodeIfPresent(Bool.self, forKey: .automaticGain) ?? automaticGain
     }
 
     /// Локаль распознавания; неизвестное значение заменяется русским.

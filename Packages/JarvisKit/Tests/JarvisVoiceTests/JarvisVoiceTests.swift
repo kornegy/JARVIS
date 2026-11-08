@@ -94,6 +94,49 @@ struct JarvisVoiceTests {
     }
 }
 
+@Suite("Усиление тихого микрофона")
+struct AutomaticGainTests {
+    @Test("Тихая речь (AirPods) — усиление растёт до предела 24 дБ")
+    func quietSpeechIsBoosted() {
+        var gain = AutomaticGain()
+        for _ in 0..<40 { _ = gain.update(level: -50) }
+        #expect(gain.gainDecibels == 24)
+        #expect(abs(gain.multiplier - 15.85) < 0.01)
+    }
+
+    @Test("Громкая речь сразу убирает усиление — без искажений")
+    func loudSpeechNeedsNoGain() {
+        var gain = AutomaticGain()
+        for _ in 0..<40 { _ = gain.update(level: -50) }
+        #expect(gain.update(level: -18) == 1)
+        #expect(gain.gainDecibels == 0)
+    }
+
+    @Test("Тишина и шум усиление не меняют")
+    func silenceHolds() {
+        var gain = AutomaticGain()
+        let before = gain.gainDecibels
+        for _ in 0..<100 { _ = gain.update(level: -80) }
+        #expect(gain.gainDecibels == before)
+    }
+
+    @Test("Усиление с ограничением ±1: нет переполнения при переводе в 16 бит")
+    func amplificationIsLimited() throws {
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
+        buffer.frameLength = 4
+        let samples = try #require(buffer.floatChannelData?[0])
+        samples[0] = 0.01; samples[1] = -0.01; samples[2] = 0.5; samples[3] = -0.5
+        let boosted = try #require(AudioLevel.amplified(buffer, by: 10))
+        let out = try #require(boosted.floatChannelData?[0])
+        #expect(abs(out[0] - 0.1) < 0.0001)
+        #expect(abs(out[1] + 0.1) < 0.0001)
+        #expect(out[2] == 1)
+        #expect(out[3] == -1)
+        #expect(samples[2] == 0.5) // исходный буфер не меняется
+    }
+}
+
 @Suite("Индикатор уровня микрофона")
 struct LevelMeterTests {
     @Test("Пик за четверть секунды, шаг 5 дБ, без повторов")

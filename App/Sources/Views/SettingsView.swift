@@ -162,6 +162,10 @@ private struct VoiceSettingsView: View {
                 Text("Если JARVIS не слышит тихую речь — увеличьте. Если реагирует на шум — уменьшите.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("Усиливать тихий микрофон", isOn: model.binding(\.voice.automaticGain))
+                Text("Микрофон AirPods и многих гарнитур на Mac очень тихий, а громкость его входа macOS менять не даёт. JARVIS сам усиливает тихую речь (до 24 дБ, без искажений). Рядом с индикатором микрофона видно уровень до усиления: обычная речь — примерно от −45 до −20 дБ.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 CommittingSlider(title: "Пауза конца фразы", model: model, keyPath: \.voice.endOfSpeechSilenceSeconds, range: 0.5...3) {
                     String(format: "%.1f с", $0)
                 }

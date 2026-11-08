@@ -98,6 +98,41 @@ struct LevelMeter {
     }
 }
 
+/// Автоматическое усиление тихого микрофона (AGC).
+///
+/// Микрофон AirPods на Mac очень тихий, а поменять его громкость macOS не даёт. Zoom, FaceTime
+/// и сама диктовка macOS это компенсируют — JARVIS теперь тоже. Следит за уровнем речи:
+/// громкая речь сразу уменьшает усиление (без искажений), тихая — постепенно увеличивает,
+/// но не больше чем на 24 дБ. Тишина и шум (ниже −65 dBFS) усиление не меняют.
+struct AutomaticGain {
+    static let targetLevel: Float = -24
+    static let maxGain: Float = 24
+    static let speechThreshold: Float = -65
+    /// На сколько дБ за фрагмент оценка речи может опуститься (≈ 0,5 дБ за 85 мс).
+    static let release: Float = 0.5
+
+    /// Оценка уровня речи, dBFS (до усиления).
+    private(set) var speechLevel: Float = -40
+
+    var gainDecibels: Float {
+        min(max(Self.targetLevel - speechLevel, 0), Self.maxGain)
+    }
+
+    var multiplier: Float {
+        pow(10, gainDecibels / 20)
+    }
+
+    /// Учесть уровень очередного фрагмента и вернуть множитель громкости.
+    mutating func update(level: Float) -> Float {
+        if level > speechLevel {
+            speechLevel = level
+        } else if level > Self.speechThreshold {
+            speechLevel = max(speechLevel - Self.release, level)
+        }
+        return multiplier
+    }
+}
+
 /// Уровень сигнала и порог для ворот.
 enum AudioLevel {
     /// Уровень первого канала в dBFS (0 — максимум, −60 — очень тихо);
@@ -107,6 +142,26 @@ enum AudioLevel {
         var rms: Float = 0
         vDSP_rmsqv(channel, 1, &rms, vDSP_Length(buffer.frameLength))
         return 20 * log10(max(rms, 1e-9))
+    }
+
+    /// Копия буфера, усиленная в `gain` раз, с ограничением ±1 (без переполнения при переводе
+    /// в 16 бит). `nil` — формат без float-данных.
+    static func amplified(_ buffer: AVAudioPCMBuffer, by gain: Float) -> AVAudioPCMBuffer? {
+        guard let source = buffer.floatChannelData,
+              let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength),
+              let destination = copy.floatChannelData else { return nil }
+        copy.frameLength = buffer.frameLength
+        let channels = Int(buffer.format.channelCount)
+        let interleaved = buffer.format.isInterleaved
+        let count = vDSP_Length(Int(buffer.frameLength) * (interleaved ? channels : 1))
+        var multiplier = gain
+        var low: Float = -1
+        var high: Float = 1
+        for channel in 0..<(interleaved ? 1 : channels) {
+            vDSP_vsmul(source[channel], 1, &multiplier, destination[channel], 1, count)
+            vDSP_vclip(destination[channel], 1, &low, &high, destination[channel], 1, count)
+        }
+        return copy
     }
 
     /// Порог ворот по чувствительности 0…1: 0 → −40 dBFS, 0,5 → −50, 1 → −60 (слышит очень тихую речь).

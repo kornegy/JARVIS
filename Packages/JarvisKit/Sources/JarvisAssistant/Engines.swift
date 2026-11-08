@@ -42,6 +42,8 @@ public struct SpeechInputConfiguration: Sendable, Equatable {
     /// Редкие слова и фразы, которые модель должна узнавать («Джарвис», «Привет, Джарвис»).
     /// Передаются только локальной модели распознавания на этом Mac.
     public var vocabulary: [String]
+    /// Усиливать тихий микрофон (AirPods и т.п.) перед распознаванием.
+    public var automaticGain: Bool
 
     public init(
         locale: Locale,
@@ -50,7 +52,8 @@ public struct SpeechInputConfiguration: Sendable, Equatable {
         continuous: Bool = false,
         modelPreference: RecognitionModelPreference = .automatic,
         liveResults: Bool = true,
-        vocabulary: [String] = []
+        vocabulary: [String] = [],
+        automaticGain: Bool = true
     ) {
         self.locale = locale
         self.inputDeviceUID = inputDeviceUID
@@ -59,6 +62,7 @@ public struct SpeechInputConfiguration: Sendable, Equatable {
         self.modelPreference = modelPreference
         self.liveResults = liveResults
         self.vocabulary = vocabulary
+        self.automaticGain = automaticGain
     }
 }
 

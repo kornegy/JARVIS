@@ -52,8 +52,11 @@ struct MicrophoneIndicator: View {
                 ProgressView(value: Self.meterValue(level))
                     .progressViewStyle(.linear)
                     .frame(width: 60)
-                    .help("Уровень сигнала микрофона")
+                    .help("Уровень сигнала микрофона (до усиления)")
                     .accessibilityLabel(Text("Уровень микрофона"))
+                Text("\(Int(level.rounded())) дБ")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
         }
     }

@@ -238,6 +238,7 @@ public final class AssistantController {
             || previous.voice.recognitionModel != newSettings.voice.recognitionModel
             || previous.voice.showLiveTranscript != newSettings.voice.showLiveTranscript
             || previous.voice.wakePhrases != newSettings.voice.wakePhrases
+            || previous.voice.automaticGain != newSettings.voice.automaticGain
         if captureChanged {
             problem = nil
             if case .failed(_) = machine.state { machine.handle(.recover) }
@@ -317,7 +318,8 @@ public final class AssistantController {
             continuous: wantsContinuousListening,
             modelPreference: settings.voice.recognitionModel,
             liveResults: settings.voice.showLiveTranscript,
-            vocabulary: RecognitionVocabulary.make(wakePhrases: settings.voice.wakePhrases)
+            vocabulary: RecognitionVocabulary.make(wakePhrases: settings.voice.wakePhrases),
+            automaticGain: settings.voice.automaticGain
         )
     }
 
