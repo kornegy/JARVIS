@@ -92,6 +92,7 @@ private struct VoiceSettingsView: View {
     @State private var devices: [AudioInputDevice] = []
     @State private var voices: [VoiceOption] = []
     @State private var modelStatus: SpeechModelStatus?
+    @State private var usesBluetoothMicrophone = false
 
     var body: some View {
         Form {
@@ -153,8 +154,14 @@ private struct VoiceSettingsView: View {
                 Picker("Микрофон", selection: model.binding(\.voice.inputDeviceUID)) {
                     Text("Системный по умолчанию").tag(String?.none)
                     ForEach(devices) { device in
-                        Text(device.name).tag(String?.some(device.uid))
+                        Text(device.isBluetooth ? "\(device.name) (Bluetooth)" : device.name)
+                            .tag(String?.some(device.uid))
                     }
+                }
+                if usesBluetoothMicrophone {
+                    Text("Сейчас выбран микрофон Bluetooth-гарнитуры. Он тише и передаёт сжатый звук, а после включения наушники 1–2 секунды переключают режим — начало фразы может пропасть. Лучший вариант: выбрать здесь встроенный микрофон Mac. Наушники продолжат играть в обычном качестве.")
+                        .font(.caption)
+                        .foregroundStyle(Color.orange)
                 }
                 CommittingSlider(title: "Чувствительность", model: model, keyPath: \.voice.microphoneSensitivity, range: 0...1) {
                     "\(Int(($0 * 100).rounded())) %"
@@ -196,7 +203,9 @@ private struct VoiceSettingsView: View {
             devices = AudioInputDevices.all()
             voices = SystemSpeechSynthesizer.voices(for: model.settings.voice.locale)
             phrasesDraft = model.settings.voice.wakePhrases.joined(separator: ", ")
+            refreshBluetoothHint()
         }
+        .onChange(of: model.settings.voice.inputDeviceUID) { refreshBluetoothHint() }
         .onChange(of: model.settings.voice.recognitionLocale) {
             voices = SystemSpeechSynthesizer.voices(for: model.settings.voice.locale)
         }
@@ -205,6 +214,11 @@ private struct VoiceSettingsView: View {
             modelStatus = await model.speechModelStatus()
         }
         .onDisappear { commitPhrases() }
+    }
+
+    private func refreshBluetoothHint() {
+        let selected = model.settings.voice.inputDeviceUID
+        usesBluetoothMicrophone = AudioInputDevices.effectiveInput(selectedUID: selected)?.isBluetooth ?? false
     }
 
     private func commitPhrases() {

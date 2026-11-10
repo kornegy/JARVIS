@@ -162,9 +162,17 @@ public final class CommandProcessor {
             return CommandOutcome(intent: intent, reply: composer.reply(to: intent), directive: .pauseMicrophone)
         case .setPrivacyMode(let enabled):
             return CommandOutcome(intent: intent, reply: composer.reply(to: intent), directive: .setPrivacyMode(enabled))
-        case .empty, .greeting, .thanks, .capabilities, .cancel, .notYetSupported, .unknown:
+        case .empty, .greeting, .attention, .thanks, .capabilities, .cancel, .notYetSupported, .unknown:
             return CommandOutcome(intent: intent, reply: composer.reply(to: intent))
         }
+    }
+
+    /// Пользователь позвал ассистента, но команды не сказал («Привет, Джарвис», «Джарвис?»).
+    /// Откликаемся, а не молчим: на приветствие — приветствием, на имя — «Слушаю».
+    public func acknowledgeAddress(_ utterance: Utterance, context: CommandContext) -> CommandOutcome {
+        configureComposer(context)
+        let intent: Intent = parser.parse(utterance.text) == .greeting ? .greeting : .attention
+        return CommandOutcome(intent: intent, reply: composer.reply(to: intent))
     }
 
     /// Пользователь подтвердил: выполняется ровно тот вызов, который был показан.

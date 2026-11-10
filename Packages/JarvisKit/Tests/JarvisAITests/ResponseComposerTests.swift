@@ -57,7 +57,7 @@ struct ResponseComposerTests {
     @Test("У каждого намерения есть ответ на обоих языках, кроме пустого")
     func everyIntentHasReply() {
         let intents: [Intent] = [
-            .greeting, .thanks, .capabilities, .cancel, .currentTime, .currentDate, .disableAssistant,
+            .greeting, .attention, .thanks, .capabilities, .cancel, .currentTime, .currentDate, .disableAssistant,
             .pauseMicrophone, .setPrivacyMode(true), .setPrivacyMode(false), .notYetSupported(.multiStep), .unknown,
             .openApp("x"), .quitApp("x"), .openWebsite("x"), .webSearch("x"), .setVolume(5), .changeVolume(.up),
             .setMuted(true), .setMuted(false),

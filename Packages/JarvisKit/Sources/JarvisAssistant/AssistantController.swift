@@ -206,9 +206,16 @@ public final class AssistantController {
             await answerConfirmation(command)
             return
         }
-        guard !command.isEmpty, machine.handle(.commandReceived) else { return }
+        let phrase = TextNormalizer.normalize(text)
+        guard !phrase.isEmpty, machine.handle(.commandReceived) else { return }
         lastReply = nil
-        await execute(Utterance(text: command, locale: settings.voice.locale), source: .typedText, speakReply: false)
+        // Написали только «Привет, Джарвис» — откликаемся так же, как на голос.
+        await execute(
+            Utterance(text: command.isEmpty ? phrase : command, locale: settings.voice.locale),
+            source: .typedText,
+            speakReply: false,
+            addressOnly: command.isEmpty
+        )
     }
 
     /// Кнопка «Да» / клавиша ⏎ в окне подтверждения.
@@ -413,6 +420,8 @@ public final class AssistantController {
                 apply(events)
             }
         case .interrupted:
+            // Сеанс распознавания будет пересоздан: уже услышанный текст сохраняем.
+            assembler.commitVolatile()
             Task { [weak self] in
                 guard let self else { return }
                 await self.stopEngine()
@@ -462,6 +471,10 @@ public final class AssistantController {
             case .commandReady(let utterance, _) where isCapturingConfirmation:
                 endConfirmationCapture()
                 Task { [weak self] in await self?.answerConfirmation(utterance.text) }
+            case .addressedOnly where isCapturingConfirmation:
+                // Вместо «да»/«нет» сказали только имя — это не ответ.
+                endConfirmationCapture()
+                Task { [weak self] in await self?.answerConfirmation("") }
             case .captureEnded where isCapturingConfirmation:
                 // Промолчали — ждём кнопку или таймаут; микрофон в режиме PTT закрываем.
                 endConfirmationCapture()
@@ -471,10 +484,22 @@ public final class AssistantController {
                 speechInput.setForcedListening(false)
                 guard machine.handle(.utteranceCaptured) else { continue }
                 play(.done)
-                liveTranscript = utterance.text
+                // На экране остаётся услышанная фраза целиком; команду показываем,
+                // только если живого текста не было.
+                if (liveTranscript ?? "").isEmpty { liveTranscript = utterance.text }
                 let source: CommandSource = trigger == .wakePhrase ? .voiceWakeWord : .voicePushToTalk
                 Task { [weak self] in
                     await self?.execute(utterance, source: source, speakReply: true)
+                }
+            case .addressedOnly(let utterance, let trigger):
+                // «Привет, Джарвис» без команды — откликаемся, а не молчим.
+                stopTicking()
+                speechInput.setForcedListening(false)
+                guard machine.handle(.utteranceCaptured) else { continue }
+                play(.done)
+                let source: CommandSource = trigger == .wakePhrase ? .voiceWakeWord : .voicePushToTalk
+                Task { [weak self] in
+                    await self?.execute(utterance, source: source, speakReply: true, addressOnly: true)
                 }
             case .captureEnded:
                 stopTicking()
@@ -488,8 +513,16 @@ public final class AssistantController {
 
     // MARK: - Выполнение
 
-    private func execute(_ utterance: Utterance, source: CommandSource, speakReply: Bool) async {
-        let outcome = await processor.handle(utterance, source: source, context: commandContext())
+    private func execute(
+        _ utterance: Utterance,
+        source: CommandSource,
+        speakReply: Bool,
+        addressOnly: Bool = false
+    ) async {
+        let context = commandContext()
+        let outcome = addressOnly
+            ? processor.acknowledgeAddress(utterance, context: context)
+            : await processor.handle(utterance, source: source, context: context)
         if let pending = outcome.pendingAction {
             await askForConfirmation(pending, question: outcome.reply, speak: speakReply)
             return

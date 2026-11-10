@@ -141,23 +141,42 @@ enum TranscriberChoice: Sendable {
 }
 
 /// Один сеанс захвата: AVAudioEngine → конвертер → SpeechAnalyzer → поток событий.
+///
+/// Распознавание (`SpeechAnalyzer`) живёт весь сеанс, а захват звука (`AVAudioEngine`) может
+/// перезапускаться внутри него. Это важно для Bluetooth-гарнитур: при включении микрофона
+/// AirPods через секунду переключаются в режим гарнитуры, и macOS останавливает аудиодвижок.
+/// Если при этом пересоздавать и распознавание, начатая фраза теряется на полуслове.
 final class RecognitionSession: @unchecked Sendable {
+    /// Пауза перед перезапуском захвата: устройство должно закончить переключение.
+    static let restartDelay: TimeInterval = 0.3
+    static let maxRestartAttempts = 6
+    /// Нет звука с микрофона дольше этого — захват «завис», перезапускаем.
+    static let stallTimeout: TimeInterval = 2.5
+
     let events: AsyncStream<SpeechInputEvent>
 
     private let eventContinuation: AsyncStream<SpeechInputEvent>.Continuation
     private let inputContinuation: AsyncStream<AnalyzerInput>.Continuation
     private let analyzer: SpeechAnalyzer
-    private let audioEngine: AVAudioEngine
+    private let inputDeviceUID: String?
     private let converter: AudioBufferConverter
     private let lock = NSLock()
     private var resultsTask: Task<Void, Never>?
-    private var configurationObserver: (any NSObjectProtocol)?
     private var isStopped = false
     private var forced = false
     // Самопроверка микрофона (под замком: пишет аудиопоток, читает проверка).
     private var receivedBuffers = 0
     private var heardSignal = false
     private var silenceCheck: Task<Void, Never>?
+    private var lastBufferUptime: TimeInterval = 0
+    private var restartScheduled = false
+
+    // Аудиодвижок: создаётся, перезапускается и останавливается только под `engineLock`.
+    private let engineLock = NSLock()
+    private var audioEngine: AVAudioEngine?
+    private var configurationObserver: (any NSObjectProtocol)?
+    private let audioQueue = DispatchQueue(label: "io.github.kornegy.jarvis.audio", qos: .userInitiated)
+    private var watchdog: (any DispatchSourceTimer)?
 
     // Используются только на аудиопотоке.
     private var gate: SpeechGate<AVAudioPCMBuffer>?
@@ -171,7 +190,7 @@ final class RecognitionSession: @unchecked Sendable {
         eventContinuation: AsyncStream<SpeechInputEvent>.Continuation,
         inputContinuation: AsyncStream<AnalyzerInput>.Continuation,
         analyzer: SpeechAnalyzer,
-        audioEngine: AVAudioEngine,
+        inputDeviceUID: String?,
         converter: AudioBufferConverter,
         gate: SpeechGate<AVAudioPCMBuffer>?,
         gain: AutomaticGain?
@@ -180,7 +199,7 @@ final class RecognitionSession: @unchecked Sendable {
         self.eventContinuation = eventContinuation
         self.inputContinuation = inputContinuation
         self.analyzer = analyzer
-        self.audioEngine = audioEngine
+        self.inputDeviceUID = inputDeviceUID
         self.converter = converter
         self.gate = gate
         self.gain = gain
@@ -203,18 +222,6 @@ final class RecognitionSession: @unchecked Sendable {
         guard let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: analysisModules) else {
             throw SpeechEngineError.modelNotInstalled
         }
-
-        let audioEngine = AVAudioEngine()
-        if let uid = configuration.inputDeviceUID {
-            guard let deviceID = AudioInputDevices.deviceID(forUID: uid) else { throw SpeechEngineError.microphoneUnavailable }
-            do {
-                try audioEngine.inputNode.auAudioUnit.setDeviceID(deviceID)
-            } catch {
-                throw SpeechEngineError.microphoneUnavailable
-            }
-        }
-        let inputFormat = audioEngine.inputNode.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else { throw SpeechEngineError.microphoneUnavailable }
 
         let (inputSequence, inputContinuation) = AsyncStream.makeStream(of: AnalyzerInput.self, bufferingPolicy: .bufferingNewest(512))
         let (events, eventContinuation) = AsyncStream.makeStream(of: SpeechInputEvent.self, bufferingPolicy: .bufferingNewest(128))
@@ -248,7 +255,7 @@ final class RecognitionSession: @unchecked Sendable {
             eventContinuation: eventContinuation,
             inputContinuation: inputContinuation,
             analyzer: analyzer,
-            audioEngine: audioEngine,
+            inputDeviceUID: configuration.inputDeviceUID,
             converter: AudioBufferConverter(outputFormat: analyzerFormat),
             gate: gate,
             gain: configuration.automaticGain ? AutomaticGain() : nil
@@ -323,13 +330,34 @@ final class RecognitionSession: @unchecked Sendable {
         }
     }
 
+    /// Первый запуск захвата звука и сторожа, который следит, что звук идёт.
     private func startAudio() throws {
-        let input = audioEngine.inputNode
-        // Пока запускалась модель, macOS могла пересобрать аудиоустройство и сменить формат
-        // микрофона. Подключение с устаревшим или пустым форматом AVAudioEngine не прощает:
-        // бросает исключение Objective-C, и приложение завершается (так и было — отчёт о сбое
-        // от 2026-11-08). Поэтому проверяем формат прямо сейчас, а подключаемся с `nil` —
-        // «текущий формат микрофона». Конвертер сам подстраивается под формат буферов.
+        try engineLock.withLock { try startEngineLocked() }
+        let timer = DispatchSource.makeTimerSource(queue: audioQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in self?.checkAudioFlow() }
+        timer.resume()
+        watchdog = timer
+    }
+
+    /// Создаёт новый аудиодвижок и подключает микрофон. Вызывать под `engineLock`.
+    ///
+    /// Движок каждый раз новый: только так он наверняка видит текущий формат устройства.
+    /// Подключение с устаревшим или пустым форматом AVAudioEngine не прощает — бросает
+    /// исключение Objective-C, и приложение завершается (отчёт о сбое от 2026-11-08). Поэтому
+    /// формат проверяется прямо перед подключением, а подключаемся с `nil` — «текущий формат
+    /// микрофона». Конвертер сам подстраивается под формат буферов.
+    private func startEngineLocked() throws {
+        let engine = AVAudioEngine()
+        if let uid = inputDeviceUID {
+            guard let deviceID = AudioInputDevices.deviceID(forUID: uid) else { throw SpeechEngineError.microphoneUnavailable }
+            do {
+                try engine.inputNode.auAudioUnit.setDeviceID(deviceID)
+            } catch {
+                throw SpeechEngineError.microphoneUnavailable
+            }
+        }
+        let input = engine.inputNode
         let current = input.outputFormat(forBus: 0)
         guard current.sampleRate > 0, current.channelCount > 0 else {
             throw SpeechEngineError.microphoneUnavailable
@@ -339,19 +367,84 @@ final class RecognitionSession: @unchecked Sendable {
             // Замер нашей части работы на аудиопотоке (для разбивки «где тратится процессор»).
             CPUMeter.audio.measure { self.process(buffer) }
         }
-        configurationObserver = NotificationCenter.default.addObserver(
+        let observer = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
-            object: audioEngine,
+            object: engine,
             queue: nil
         ) { [weak self] _ in
-            self?.eventContinuation.yield(.interrupted)
+            // Устройство изменилось (наушники переключили режим, сменили микрофон): macOS уже
+            // остановила движок. Перезапускаем только звук — распознавание продолжается.
+            self?.scheduleAudioRestart(attempt: 1)
         }
-        audioEngine.prepare()
+        engine.prepare()
         do {
-            try audioEngine.start()
+            try engine.start()
         } catch {
+            NotificationCenter.default.removeObserver(observer)
+            input.removeTap(onBus: 0)
             throw SpeechEngineError.microphoneUnavailable
         }
+        audioEngine = engine
+        configurationObserver = observer
+        lock.withLock { lastBufferUptime = ProcessInfo.processInfo.systemUptime }
+    }
+
+    /// Останавливает и отпускает текущий движок. Вызывать под `engineLock`.
+    private func stopEngineLocked() {
+        if let configurationObserver {
+            NotificationCenter.default.removeObserver(configurationObserver)
+        }
+        configurationObserver = nil
+        if let engine = audioEngine {
+            engine.inputNode.removeTap(onBus: 0)
+            engine.stop()
+        }
+        audioEngine = nil
+    }
+
+    private func scheduleAudioRestart(attempt: Int) {
+        let shouldSchedule = lock.withLock { () -> Bool in
+            if isStopped || restartScheduled { return false }
+            restartScheduled = true
+            return true
+        }
+        guard shouldSchedule else { return }
+        audioQueue.asyncAfter(deadline: .now() + Self.restartDelay) { [weak self] in
+            self?.restartAudio(attempt: attempt)
+        }
+    }
+
+    private func restartAudio(attempt: Int) {
+        let restarted = engineLock.withLock { () -> Bool in
+            // Сеанс могли остановить, пока перезапуск ждал очереди: тогда микрофон не трогаем
+            // (иначе он остался бы включённым после остановки).
+            if lock.withLock({ isStopped }) { return true }
+            stopEngineLocked()
+            // Флаг снимаем до запуска: если новое устройство ещё «дёргается» и движок снова
+            // остановят, следующее уведомление не потеряется.
+            lock.withLock { restartScheduled = false }
+            do {
+                try startEngineLocked()
+                return true
+            } catch {
+                return false
+            }
+        }
+        guard !restarted else { return }
+        if attempt < Self.maxRestartAttempts {
+            scheduleAudioRestart(attempt: attempt + 1)
+        } else {
+            // Не получилось — пусть оркестратор пересоздаст сеанс целиком (или покажет проблему).
+            eventContinuation.yield(.interrupted)
+        }
+    }
+
+    /// Сторож: движок иногда замирает без уведомления (бывает с Bluetooth). Нет буферов
+    /// дольше `stallTimeout` — перезапускаем захват.
+    private func checkAudioFlow() {
+        let now = ProcessInfo.processInfo.systemUptime
+        let stalled = lock.withLock { !isStopped && !restartScheduled && now - lastBufferUptime > Self.stallTimeout }
+        if stalled { scheduleAudioRestart(attempt: 1) }
     }
 
     /// Через несколько секунд после старта: если звука не было вовсе — сказать об этом.
@@ -370,9 +463,11 @@ final class RecognitionSession: @unchecked Sendable {
         let rawLevel = AudioLevel.decibels(of: buffer)
         // Нет float-данных — уровень неизвестен; тишиной это не считаем.
         let signal = rawLevel.map { $0 > MicrophoneSignal.digitalSilence } ?? true
+        let now = ProcessInfo.processInfo.systemUptime
         lock.withLock {
             receivedBuffers += 1
             if signal { heardSignal = true }
+            lastBufferUptime = now
         }
         if let rawLevel, let level = meter.update(rawLevel, frames: Int(buffer.frameLength), sampleRate: buffer.format.sampleRate) {
             eventContinuation.yield(.inputLevel(level))
@@ -416,11 +511,8 @@ final class RecognitionSession: @unchecked Sendable {
         }
         guard shouldStop else { return }
         silenceCheck?.cancel()
-        if let configurationObserver {
-            NotificationCenter.default.removeObserver(configurationObserver)
-        }
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
+        watchdog?.cancel()
+        engineLock.withLock { stopEngineLocked() }
         inputContinuation.finish()
         await analyzer.cancelAndFinishNow()
         resultsTask?.cancel()

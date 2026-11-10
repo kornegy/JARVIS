@@ -135,6 +135,24 @@ struct CommandProcessorTests {
         #expect(entries.isEmpty)
     }
 
+    @Test("Только обращение: на «Привет, Джарвис» — приветствие, на имя — «Слушаю»")
+    func addressOnlyIsAcknowledged() async throws {
+        let directory = try TemporaryDirectory()
+        defer { directory.remove() }
+        let audit = AuditLog(directory: directory.url)
+        let processor = try makeProcessor(audit: audit)
+
+        let greeting = processor.acknowledgeAddress(utterance("привет джарвис"), context: russian)
+        #expect(greeting.intent == .greeting)
+        #expect(["Привет! Чем займёмся?", "Привет. Я на связи.", "Здорово! Что нужно?"].contains(greeting.reply))
+
+        let name = processor.acknowledgeAddress(utterance("джарвис"), context: russian)
+        #expect(name.intent == .attention)
+        #expect(["Слушаю.", "Да?", "Я здесь."].contains(name.reply))
+
+        #expect(try await audit.recentEntries().isEmpty)
+    }
+
     @Test("Закрытие приложения: сначала вопрос, выполнение — только после «да»")
     func confirmationThenRun() async throws {
         let directory = try TemporaryDirectory()

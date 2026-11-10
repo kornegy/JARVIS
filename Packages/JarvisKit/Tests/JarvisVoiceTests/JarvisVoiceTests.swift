@@ -120,20 +120,34 @@ struct AutomaticGainTests {
         #expect(gain.gainDecibels == before)
     }
 
-    @Test("Усиление с ограничением ±1: нет переполнения при переводе в 16 бит")
+    @Test("Усиление ограничено самым громким отсчётом — звук не искажается")
     func amplificationIsLimited() throws {
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
-        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
-        buffer.frameLength = 4
-        let samples = try #require(buffer.floatChannelData?[0])
-        samples[0] = 0.01; samples[1] = -0.01; samples[2] = 0.5; samples[3] = -0.5
-        let boosted = try #require(AudioLevel.amplified(buffer, by: 10))
-        let out = try #require(boosted.floatChannelData?[0])
-        #expect(abs(out[0] - 0.1) < 0.0001)
-        #expect(abs(out[1] + 0.1) < 0.0001)
-        #expect(out[2] == 1)
-        #expect(out[3] == -1)
-        #expect(samples[2] == 0.5) // исходный буфер не меняется
+        func makeBuffer(_ values: [Float]) throws -> AVAudioPCMBuffer {
+            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(values.count)))
+            buffer.frameLength = AVAudioFrameCount(values.count)
+            let samples = try #require(buffer.floatChannelData?[0])
+            for (index, value) in values.enumerated() { samples[index] = value }
+            return buffer
+        }
+
+        // Тихий буфер усиливается в полную силу.
+        let quiet = try makeBuffer([0.01, -0.01, 0.02, -0.02])
+        let boostedQuiet = try #require(AudioLevel.amplified(quiet, by: 10))
+        let quietOut = try #require(boostedQuiet.floatChannelData?[0])
+        #expect(abs(quietOut[0] - 0.1) < 0.0001)
+        #expect(abs(quietOut[3] + 0.2) < 0.0001)
+        #expect(quiet.floatChannelData?[0][0] == 0.01) // исходный буфер не меняется
+
+        // Громкий отсчёт ограничивает усиление: пик не выше 0,9, форма сигнала сохраняется.
+        let mixed = try makeBuffer([0.01, -0.01, 0.5, -0.5])
+        let boostedMixed = try #require(AudioLevel.amplified(mixed, by: 10))
+        let mixedOut = try #require(boostedMixed.floatChannelData?[0])
+        #expect(abs(mixedOut[2] - 0.9) < 0.0001)
+        #expect(abs(mixedOut[0] - 0.018) < 0.0001)
+
+        // Уже громкий сигнал не трогаем.
+        #expect(try AudioLevel.amplified(makeBuffer([0.95, -0.9]), by: 10) == nil)
     }
 }
 

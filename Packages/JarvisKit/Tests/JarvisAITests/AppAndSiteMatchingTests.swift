@@ -46,6 +46,19 @@ struct AppNameMatcherTests {
     }
 }
 
+@Suite("Услышанный текст для экрана")
+struct HeardTextTests {
+    private let matcher = WakePhraseMatcher(phrases: ["привет джарвис", "hey jarvis"])
+
+    @Test("Показываем с фразы-активатора, как распознано; чужую речь до неё — нет")
+    func heardText() {
+        #expect(matcher.heardText(fromWakePhraseIn: "Привет, Джарвис, который час?") == "Привет, Джарвис, который час?")
+        #expect(matcher.heardText(fromWakePhraseIn: "ну ладно привет Джарвис, который час") == "привет Джарвис, который час")
+        #expect(matcher.heardText(fromWakePhraseIn: "что-то там — hey Jarvis open Safari") == "hey Jarvis open Safari")
+        #expect(matcher.heardText(fromWakePhraseIn: "без обращения") == "без обращения")
+    }
+}
+
 @Suite("Сайты")
 struct SiteDirectoryTests {
     @Test("Адрес из текста")

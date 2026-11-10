@@ -21,6 +21,9 @@ public enum VolumeDirection: Sendable, Equatable {
 public enum Intent: Sendable, Equatable {
     case empty
     case greeting
+    /// Пользователь позвал ассистента по имени, но команды не сказал («Джарвис?»).
+    /// Правила такое намерение не выдают — его определяет сборщик команды.
+    case attention
     case thanks
     case capabilities
     case cancel

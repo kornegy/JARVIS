@@ -120,7 +120,8 @@ struct AssistantControllerTests {
         #expect(h.input.forcedListening) // явная команда — тихую речь не отсекаем
 
         h.input.say("Джарвис, какое сегодня число", isFinal: false)
-        #expect(await waitUntil { h.controller.liveTranscript == "какое сегодня число" })
+        // На экране — всё услышанное, вместе с обращением.
+        #expect(await waitUntil { h.controller.liveTranscript == "Джарвис, какое сегодня число" })
 
         h.controller.pushToTalkReleased()
         #expect(await waitUntil { h.input.finalizeCount == 1 })
@@ -290,6 +291,55 @@ struct AssistantControllerTests {
         #expect(quit.runCount == 0)
         let entries = try await h.audit.recentEntries()
         #expect(entries.contains { $0.action == StandardTools.quitApp && $0.outcome == .cancelledByUser })
+    }
+
+    @Test("«Говорить» и «Привет, Джарвис»: текст не стирается, JARVIS откликается")
+    func addressOnlyGetsReply() async throws {
+        let h = try makeHarness()
+        defer { h.directory.remove() }
+        await h.controller.enable()
+        await h.controller.startListening()
+
+        h.input.say("Привет", isFinal: false)
+        #expect(await waitUntil { h.controller.liveTranscript == "Привет" })
+        h.input.say("Привет, Джар", isFinal: false)
+        #expect(await waitUntil { h.controller.liveTranscript == "Привет, Джар" })
+        h.input.say("Привет, Джарвис", isFinal: true)
+        #expect(await waitUntil { h.controller.liveTranscript == "Привет, Джарвис" })
+
+        h.clock.advance(2.1)
+        h.controller.tick()
+        #expect(await waitUntil { h.output.spoken.count == 1 })
+        #expect(["Привет! Чем займёмся?", "Привет. Я на связи.", "Здорово! Что нужно?"].contains(h.output.spoken.first ?? ""))
+        #expect(await waitUntil { h.controller.state == .idle(.pushToTalk) })
+        #expect(!h.input.isCapturing)
+    }
+
+    @Test("Текстом «Привет, Джарвис» — тоже отклик")
+    func typedAddressOnly() async throws {
+        let h = try makeHarness()
+        defer { h.directory.remove() }
+        await h.controller.enable()
+
+        await h.controller.submitTypedCommand("Джарвис")
+        #expect(["Слушаю.", "Да?", "Я здесь."].contains(h.controller.lastReply ?? ""))
+        #expect(h.controller.state == .idle(.pushToTalk))
+    }
+
+    @Test("Смена аудиоустройства посреди фразы не стирает услышанное")
+    func interruptionKeepsHeardText() async throws {
+        let h = try makeHarness()
+        defer { h.directory.remove() }
+        await h.controller.enable()
+        await h.controller.startListening()
+
+        h.input.say("Привет, Джар", isFinal: false)
+        #expect(await waitUntil { h.controller.liveTranscript == "Привет, Джар" })
+
+        h.input.emit(.interrupted) // наушники переключили режим — сеанс пересоздаётся
+        #expect(await waitUntil { h.input.startCount == 2 })
+        h.input.say("вис, который час", isFinal: false)
+        #expect(await waitUntil { h.controller.liveTranscript == "Привет, Джар вис, который час" })
     }
 
     @Test("Микрофон молчит — понятная подсказка; звук появился — подсказка исчезает")

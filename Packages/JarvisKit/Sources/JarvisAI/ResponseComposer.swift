@@ -142,6 +142,12 @@ enum RussianReplies {
                 brief: ["Привет."],
                 quips: ["Надеюсь, сегодня без срочных созвонов.", "Кофе уже был?"]
             )
+        case .attention:
+            return ReplyLines(
+                casual: ["Слушаю.", "Да?", "Я здесь."],
+                formal: ["Слушаю вас."],
+                brief: ["Да?"]
+            )
         case .thanks:
             return ReplyLines(
                 casual: ["Всегда пожалуйста.", "Обращайся!", "Не за что."],
@@ -242,6 +248,8 @@ enum EnglishReplies {
                 brief: ["Hi."],
                 quips: ["Hopefully no urgent meetings today."]
             )
+        case .attention:
+            return ReplyLines(casual: ["Yes?", "I'm here.", "I'm listening."], brief: ["Yes?"])
         case .thanks:
             return ReplyLines(casual: ["Anytime.", "You got it!", "No problem."], formal: ["Always glad to help."], brief: ["Sure."])
         case .capabilities:

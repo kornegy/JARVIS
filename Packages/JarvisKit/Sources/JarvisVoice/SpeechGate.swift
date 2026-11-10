@@ -144,22 +144,32 @@ enum AudioLevel {
         return 20 * log10(max(rms, 1e-9))
     }
 
-    /// Копия буфера, усиленная в `gain` раз, с ограничением ±1 (без переполнения при переводе
-    /// в 16 бит). `nil` — формат без float-данных.
+    /// Самый громкий отсчёт после усиления не превышает этого значения (1 — предел формата).
+    static let ceiling: Float = 0.9
+
+    /// Копия буфера, усиленная не больше чем в `gain` раз. Усиление ограничено самым громким
+    /// отсчётом буфера, поэтому звук не искажается. `nil` — усиливать нечего или нельзя
+    /// (формат без float-данных, сигнал уже громкий).
     static func amplified(_ buffer: AVAudioPCMBuffer, by gain: Float) -> AVAudioPCMBuffer? {
-        guard let source = buffer.floatChannelData,
+        guard let source = buffer.floatChannelData, buffer.frameLength > 0 else { return nil }
+        let channels = Int(buffer.format.channelCount)
+        let interleaved = buffer.format.isInterleaved
+        let planes = interleaved ? 1 : channels
+        let count = vDSP_Length(Int(buffer.frameLength) * (interleaved ? channels : 1))
+
+        var peak: Float = 0
+        for plane in 0..<planes {
+            var planePeak: Float = 0
+            vDSP_maxmgv(source[plane], 1, &planePeak, count)
+            peak = max(peak, planePeak)
+        }
+        var multiplier = peak > 0 ? min(gain, ceiling / peak) : gain
+        guard multiplier > 1.01,
               let copy = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameLength),
               let destination = copy.floatChannelData else { return nil }
         copy.frameLength = buffer.frameLength
-        let channels = Int(buffer.format.channelCount)
-        let interleaved = buffer.format.isInterleaved
-        let count = vDSP_Length(Int(buffer.frameLength) * (interleaved ? channels : 1))
-        var multiplier = gain
-        var low: Float = -1
-        var high: Float = 1
-        for channel in 0..<(interleaved ? 1 : channels) {
-            vDSP_vsmul(source[channel], 1, &multiplier, destination[channel], 1, count)
-            vDSP_vclip(destination[channel], 1, &low, &high, destination[channel], 1, count)
+        for plane in 0..<planes {
+            vDSP_vsmul(source[plane], 1, &multiplier, destination[plane], 1, count)
         }
         return copy
     }
