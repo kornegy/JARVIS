@@ -23,11 +23,14 @@ struct SettingsView: View {
             Tab("Приватность", systemImage: "lock.shield") {
                 PrivacySettingsView(model: model)
             }
+            Tab("Разрешения", systemImage: "hand.raised") {
+                PermissionsView(manager: model.permissions)
+            }
             Tab("О программе", systemImage: "info.circle") {
                 AboutView(model: model)
             }
         }
-        .frame(width: 560, height: 560)
+        .frame(width: 600, height: 600)
     }
 }
 
@@ -375,14 +378,14 @@ private struct AboutView: View {
         Form {
             Section {
                 LabeledContent("Версия", value: Bundle.main.versionDescription)
-                LabeledContent("Этап разработки", value: "Phase 2 — голос")
+                LabeledContent("Этап разработки", value: "Phase 3 — управление Mac")
             }
             Section("Что уже работает") {
-                Text("«Привет, Джарвис» и Push-to-Talk, распознавание речи на этом Mac, ответы голосом с характером, текстовые команды, время и дата, пауза микрофона, Privacy Mode, журнал действий без текста команд.")
+                Text("«Привет, Джарвис» и Push-to-Talk, распознавание речи на этом Mac, ответы голосом с характером, текстовые команды. Приложения, сайты и поиск в интернете, громкость. Файлы: найти, открыть, показать в Finder, переместить, переименовать, в Корзину — и «отмени». Подтверждение действий с последствиями, журнал действий без текста команд, Privacy Mode.")
                     .fixedSize(horizontal: false, vertical: true)
             }
             Section("Что дальше") {
-                Text("Phase 3 — управление Mac: приложения, файлы, системные настройки, подтверждение опасных действий.")
+                Text("Окна, Shortcuts, буфер обмена и настройки системы (Phase 3c), потом — личный ассистент: AI, память, напоминания, почта и календарь (Phase 4).")
                     .fixedSize(horizontal: false, vertical: true)
             }
             if let url = AboutView.repositoryURL {

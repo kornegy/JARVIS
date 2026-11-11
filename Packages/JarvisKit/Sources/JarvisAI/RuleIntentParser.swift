@@ -7,6 +7,8 @@ public enum Feature: String, Sendable, CaseIterable {
     case mail
     case calendar
     case media
+    /// Окна других приложений (Phase 3c).
+    case windows
     /// Составная команда («открой X и сделай Y») или действие над группой («закрой все приложения»).
     case multiStep
 }
@@ -44,6 +46,22 @@ public enum Intent: Sendable, Equatable {
     case setVolume(Int)
     case changeVolume(VolumeDirection)
     case setMuted(Bool)
+    /// Найти файлы: «найди последний скачанный PDF».
+    case findFiles(FileQuery)
+    /// Открыть файл или папку: «открой его», «открой загрузки».
+    case openFile(FileTarget)
+    /// Показать в Finder.
+    case revealFile(FileTarget)
+    /// Переместить в папку. `nil` — пользователь не сказал куда.
+    case moveFile(FileTarget, FolderTarget?)
+    /// Переименовать. `nil` — не сказал, как назвать.
+    case renameFile(FileTarget, String?)
+    /// Переместить в Корзину.
+    case trashFile(FileTarget)
+    /// Выбор из списка, который JARVIS только что прочитал: «второй».
+    case chooseItem(Int)
+    /// «Джарвис, отмени»: вернуть последнее действие с файлами.
+    case undo
     case notYetSupported(Feature)
     case unknown
 }
@@ -74,6 +92,7 @@ public struct RuleIntentParser: Sendable {
         if sentence.contains(any: Lexicon.pauseMicrophone) || sentence.isExactly(any: Lexicon.pauseMicrophoneExact) {
             return .pauseMicrophone
         }
+        if sentence.isExactly(any: Lexicon.undoExact) || sentence.contains(any: Lexicon.undo) { return .undo }
         if sentence.isExactly(any: Lexicon.cancel) { return .cancel }
         if let intent = Self.volumeIntent(in: sentence) { return intent }
         if sentence.contains(any: Lexicon.time) || sentence.isExactly(any: Lexicon.timeExact) { return .currentTime }
@@ -81,18 +100,19 @@ public struct RuleIntentParser: Sendable {
         if sentence.contains(any: Lexicon.capabilities) || sentence.isExactly(any: Lexicon.capabilitiesExact) {
             return .capabilities
         }
+        if let intent = FileCommandParser.parse(sentence, rawText: text) { return intent }
         if let intent = Self.searchIntent(in: sentence) { return intent }
         if let intent = Self.appOrSiteIntent(in: sentence, rawText: text) { return intent }
         if let feature = Self.feature(in: sentence) { return .notYetSupported(feature) }
+        // «Найди» без подробностей — спросим, что искать.
+        if sentence.hasWord(startingWith: Lexicon.search) { return .findFiles(FileQuery()) }
         if sentence.contains(any: Lexicon.thanks) { return .thanks }
         if Self.isGreeting(sentence) { return .greeting }
         return .unknown
     }
 
     private static func feature(in sentence: Sentence) -> Feature? {
-        if let feature = specificFeature(in: sentence) { return feature }
-        if sentence.hasWord(startingWith: Lexicon.search) { return .files }
-        return nil
+        specificFeature(in: sentence)
     }
 
     /// Возможность, явно названная в команде (почта, календарь, файлы…).
@@ -101,6 +121,7 @@ public struct RuleIntentParser: Sendable {
         if sentence.hasWord(startingWith: Lexicon.calendar) || sentence.contains(any: ["планы на"]) { return .calendar }
         if sentence.hasWord(startingWith: Lexicon.reminders) { return .reminders }
         if sentence.hasWord(startingWith: Lexicon.media) { return .media }
+        if sentence.hasWord(startingWith: Lexicon.windows) { return .windows }
         if sentence.hasWord(startingWith: Lexicon.system) || sentence.contains(any: ["wi fi"]) { return .system }
         if sentence.hasWord(startingWith: Lexicon.files) { return .files }
         return nil
@@ -137,7 +158,7 @@ public struct RuleIntentParser: Sendable {
     // MARK: - Поиск в интернете
 
     /// «Найди в интернете рецепт борща», «загугли погоду», «search the web for cats».
-    /// «Найди» без указания на интернет, но со словами про файлы — это поиск файлов (Phase 3b).
+    /// «Найди» со словами про файлы сюда не доходит — это `FileCommandParser`.
     private static func searchIntent(in sentence: Sentence) -> Intent? {
         let words = sentence.words
         var verbEnd: Int?
@@ -184,9 +205,10 @@ public struct RuleIntentParser: Sendable {
         if target.contains(where: { Lexicon.groupWords.contains($0) }) {
             return .notYetSupported(.multiStep)
         }
-        // «Открой файл…», «открой загрузки» — это файлы (Phase 3b).
+        // Файлы и папки, которые не разобрал `FileCommandParser`: «закрой папку загрузки» — это
+        // окно Finder (Phase 3c).
         if target.contains(where: { word in Lexicon.files.contains { word.hasPrefix($0) } }) {
-            return .notYetSupported(.files)
+            return .notYetSupported(quitIndex != nil ? .windows : .files)
         }
 
         let isQuit = quitIndex != nil
@@ -245,7 +267,7 @@ public struct RuleIntentParser: Sendable {
 }
 
 /// Нормализованная фраза с удобными проверками по словам.
-private struct Sentence {
+struct Sentence {
     let words: [String]
     let padded: String
 
@@ -286,7 +308,7 @@ private struct Sentence {
 }
 
 /// Словарь правил. Фразы пишутся как обычный текст — нормализуются при сравнении.
-private enum Lexicon {
+enum Lexicon {
     static let privacy = ["приватн", "конфиденциальн", "privacy", "private"]
     static let turnOff = ["выключ", "отключ", "деактив"]
     static let turnOn = ["включ", "актив"]
@@ -300,8 +322,16 @@ private enum Lexicon {
     ]
     static let pauseMicrophoneExact = ["пауза", "mute"]
 
+    /// «Отмени» без продолжения — это отмена последнего действия, а «отмена», «стоп», «неважно» —
+    /// «ничего не делай».
+    static let undoExact = ["отмени", "отмени это", "отмени последнее", "undo", "undo that", "undo it"]
+    static let undo = [
+        "отмени последнее действие", "отмени действие", "отмени последнюю команду", "верни как было", "верни обратно",
+        "верни назад", "верни на место", "undo the last", "undo last", "put it back",
+    ]
+
     static let cancel = [
-        "отмена", "отмени", "отменить", "стоп", "ничего", "неважно", "не важно", "забудь", "забей", "проехали",
+        "отмена", "отменить", "стоп", "ничего", "неважно", "не важно", "забудь", "забей", "проехали",
         "cancel", "never mind", "nevermind", "nothing", "stop",
     ]
 
@@ -332,6 +362,7 @@ private enum Lexicon {
     static let calendar = ["календар", "запланир", "встреч", "расписан", "calendar", "schedule", "meeting", "agenda"]
     static let reminders = ["напомн", "напоминан", "remind"]
     static let media = ["музык", "песн", "трек", "плейлист", "music", "song", "playlist"]
+    static let windows = ["окн", "window"]
     static let system = [
         "громк", "ярк", "ярч", "вайфа", "wifi", "блютуз", "bluetooth", "volume", "brightness", "brighter", "dimmer",
         "буфер", "clipboard",

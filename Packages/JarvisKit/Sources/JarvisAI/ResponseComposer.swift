@@ -157,9 +157,9 @@ enum RussianReplies {
             )
         case .capabilities:
             return ReplyLines(
-                casual: ["Открываю и закрываю приложения, открываю сайты и ищу в интернете, меняю громкость, подсказываю время и дату, ставлю микрофон на паузу и включаю приватный режим. Файлы и окна — в следующих версиях."],
-                formal: ["Я могу открывать и закрывать приложения, открывать сайты и искать в интернете, менять громкость, подсказывать время и дату, ставить микрофон на паузу и включать приватный режим. Работа с файлами и окнами появится в следующих версиях."],
-                brief: ["Приложения, сайты, поиск, громкость, время и дата. Файлы — скоро."]
+                casual: ["Открываю и закрываю приложения, открываю сайты и ищу в интернете. Нахожу файлы, открываю, перемещаю, переименовываю и убираю их в Корзину — и могу это отменить. А ещё меняю громкость, подсказываю время и дату, ставлю микрофон на паузу и включаю приватный режим. Окна — в следующей версии."],
+                formal: ["Я могу открывать и закрывать приложения, открывать сайты и искать в интернете, находить файлы, открывать, перемещать, переименовывать их и убирать в Корзину — с возможностью отмены. Ещё могу менять громкость, подсказывать время и дату, ставить микрофон на паузу и включать приватный режим. Управление окнами появится в следующей версии."],
+                brief: ["Приложения, сайты, поиск, файлы, громкость, время и дата."]
             )
         case .cancel:
             return ReplyLines(
@@ -207,6 +207,26 @@ enum RussianReplies {
             return ReplyLines(casual: ["Громкость {value}."], brief: ["{value}."])
         case .setMuted(let muted):
             return ReplyLines(casual: [muted ? "Звук выключен." : "Звук включён."])
+        case .findFiles:
+            return ReplyLines(casual: ["{value}"])
+        case .openFile:
+            return ReplyLines(casual: ["Открываю {value}."], brief: ["{value}."])
+        case .revealFile:
+            return ReplyLines(casual: ["Показываю {value} в Finder."], brief: ["{value}."])
+        case .moveFile:
+            return ReplyLines(casual: ["Переместил {value}."], brief: ["Готово."])
+        case .renameFile:
+            return ReplyLines(casual: ["Переименовал: теперь это {value}."], brief: ["Готово."])
+        case .trashFile:
+            return ReplyLines(
+                casual: ["Переместил в Корзину {value}. Если передумаешь — скажи «отмени»."],
+                formal: ["Переместил в Корзину {value}. Если передумаете — скажите «отмени»."],
+                brief: ["В Корзине."]
+            )
+        case .undo:
+            return ReplyLines(casual: ["Готово: {value}."], brief: ["Вернул."])
+        case .chooseItem:
+            return ReplyLines(casual: ["Хорошо."])
         case .notYetSupported:
             return ReplyLines(
                 casual: ["{feature} я научусь в следующей версии."],
@@ -225,12 +245,13 @@ enum RussianReplies {
 
     static func featureName(_ feature: Feature) -> String {
         switch feature {
-        case .files: "Работать с файлами"
+        case .files: "Создавать и копировать файлы"
         case .system: "Управлять этой настройкой Mac"
         case .reminders: "Ставить напоминания"
         case .mail: "Работать с почтой"
         case .calendar: "Смотреть календарь"
         case .media: "Управлять музыкой"
+        case .windows: "Управлять окнами"
         case .multiStep: "Выполнять несколько действий одной командой"
         }
     }
@@ -254,8 +275,8 @@ enum EnglishReplies {
             return ReplyLines(casual: ["Anytime.", "You got it!", "No problem."], formal: ["Always glad to help."], brief: ["Sure."])
         case .capabilities:
             return ReplyLines(
-                casual: ["I open and quit apps, open websites and search the web, change the volume, tell the time and date, pause the microphone and turn on privacy mode. Files and windows are coming next."],
-                brief: ["Apps, websites, search, volume, time and date. Files soon."]
+                casual: ["I open and quit apps, open websites and search the web. I find files, open, move, rename and trash them — and can undo that. I also change the volume, tell the time and date, pause the microphone and turn on privacy mode. Windows are coming next."],
+                brief: ["Apps, websites, search, files, volume, time and date."]
             )
         case .cancel:
             return ReplyLines(casual: ["Okay, cancelled.", "Sure, forget it."], brief: ["Cancelled."])
@@ -281,6 +302,22 @@ enum EnglishReplies {
             return ReplyLines(casual: ["Volume {value}."], brief: ["{value}."])
         case .setMuted(let muted):
             return ReplyLines(casual: [muted ? "Sound is off." : "Sound is on."])
+        case .findFiles:
+            return ReplyLines(casual: ["{value}"])
+        case .openFile:
+            return ReplyLines(casual: ["Opening {value}."], brief: ["{value}."])
+        case .revealFile:
+            return ReplyLines(casual: ["Showing {value} in Finder."], brief: ["{value}."])
+        case .moveFile:
+            return ReplyLines(casual: ["Moved {value}."], brief: ["Done."])
+        case .renameFile:
+            return ReplyLines(casual: ["Renamed it to {value}."], brief: ["Done."])
+        case .trashFile:
+            return ReplyLines(casual: ["Moved {value} to the Trash. Say “undo” if you change your mind."], brief: ["In the Trash."])
+        case .undo:
+            return ReplyLines(casual: ["Done: {value}."], brief: ["Undone."])
+        case .chooseItem:
+            return ReplyLines(casual: ["Okay."])
         case .notYetSupported:
             return ReplyLines(casual: ["I'll learn to {feature} in the next version."], brief: ["Can't do that yet."], quips: ["Already practicing."])
         case .unknown:
@@ -293,12 +330,13 @@ enum EnglishReplies {
 
     static func featureName(_ feature: Feature) -> String {
         switch feature {
-        case .files: "work with files"
+        case .files: "create and copy files"
         case .system: "change this Mac setting"
         case .reminders: "set reminders"
         case .mail: "work with mail"
         case .calendar: "check your calendar"
         case .media: "control music"
+        case .windows: "manage windows"
         case .multiStep: "do several things in one command"
         }
     }

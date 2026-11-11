@@ -24,6 +24,8 @@ final class AppModel {
     let launchOptions: AppLaunchOptions
     let loginItem: LoginItemController
     let assistant: AssistantController
+    /// Статусы разрешений macOS и их запрос (вкладка «Разрешения»).
+    let permissions: PermissionManager
 
     private let settingsStore: SettingsStore
     private let auditLog: AuditLog
@@ -58,10 +60,13 @@ final class AppModel {
             detailLevel: loaded.settings.privacy.auditDetail
         )
 
+        // В UI-тестах «домашняя папка» для файловых команд — временная: тесты не трогают настоящие файлы.
+        let files = launchOptions.isUITesting ? FileToolkit(home: directories.root) : FileToolkit()
+        let permissions = PermissionManager(folders: files.access, policy: files.policy)
         var registry: ToolRegistry
         do {
             registry = try BuiltInTools.makeRegistry()
-            try MacTools.register(into: &registry)
+            try MacTools.register(into: &registry, files: files)
         } catch {
             logger.fault("Built-in tools failed to register", .error(error))
             registry = ToolRegistry()
@@ -76,6 +81,7 @@ final class AppModel {
         self.auditLog = auditLog
         self.speechInput = speechInput
         self.speechOutput = speechOutput
+        self.permissions = permissions
         self.assistant = AssistantController(
             settings: loaded.settings,
             speechInput: speechInput,
@@ -83,7 +89,7 @@ final class AppModel {
             microphone: MicrophonePermission(),
             speechRecognition: SpeechRecognitionPermission(),
             sounds: SystemFeedbackSounds(),
-            processor: CommandProcessor(registry: registry, auditLog: auditLog),
+            processor: CommandProcessor(registry: registry, auditLog: auditLog, permissions: permissions),
             auditLog: auditLog
         )
         self.loginItem = LoginItemController(isManaged: !launchOptions.isUITesting)
