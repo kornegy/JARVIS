@@ -86,12 +86,12 @@ enum FileCommandParser {
         case .move:
             let (fileWords, destination) = splitDestination(rest)
             guard let fileTarget = describe(fileWords).fileTarget(defaultToPrevious: true) else { return nil }
-            return .moveFile(fileTarget, to: destination)
+            return .moveFile(fileTarget, destination)
 
         case .rename:
             let (fileWords, newName) = splitNewName(rest, rawText: rawText)
             guard let fileTarget = describe(fileWords).fileTarget(defaultToPrevious: true) else { return nil }
-            return .renameFile(fileTarget, to: newName)
+            return .renameFile(fileTarget, newName)
 
         case .trash:
             let words = removingPhrases(FileLexicon.toTrash, from: rest)
