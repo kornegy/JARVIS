@@ -134,6 +134,33 @@ PlanValidator → для каждого шага:
 * Ответ пользователю: короткие шаблоны с учётом «личности» (юмор/формальность/
   разговорчивость) локально; для свободной беседы — текст LLM.
 
+### 4.1. Файловые команды (Phase 3b)
+
+```
+«перемести последний скачанный PDF в папку Работа»
+  │ FileCommandParser (JarvisAI)
+  ▼
+moveFile(.query(kind: pdf, location: downloads, latest), .named("работа"))
+  │ CommandProcessor: что за файл? — files.find (Spotlight или обход папок)
+  │                   куда?        — files.find(kind: folder, name: «работа»)
+  ▼
+files.move(paths: ["/Users/…/Downloads/счёт.pdf"], destination: "/Users/…/Documents/Работа")
+  │ ConfirmationPolicy: категория 2 (больше 10 файлов — 3) → describe → окно со всеми файлами
+  ▼ «да»
+FileOperations: проверка всех путей (PathPolicy, без перезаписи) → перемещение →
+UndoJournal (в памяти) → AuditLog (идентификатор + число файлов) → «Переместил …»
+```
+
+* Описание файла превращается в **точные пути до вопроса**: после «да» выполняется ровно то,
+  что было показано, без повторного поиска.
+* «Его», «второй», «их» — пути из последнего ответа (в памяти `CommandProcessor`, 10 минут,
+  забываются при выключении). Если подходящих файлов несколько, а действие над одним, JARVIS
+  спрашивает «какой из них?» — следующее «второй» выбирает файл.
+* «Последний» — сортировка по дате (что позже: добавлен в папку или изменён), поэтому файл из
+  AirDrop со старой датой изменения тоже «последний скачанный».
+* «Джарвис, отмени» — инструмент `actions.undo`: последнее действие из журнала возвращается
+  тем же путём, через ту же политику путей и подтверждение.
+
 ## 5. Hybrid AI: локально, облако, гибрид
 
 | Режим | Что используется | Сеть |
@@ -217,7 +244,7 @@ CloudKit private database (данные пользователя в его iClou
 | `JarvisAI` | нормализация текста, `WakePhraseMatcher`, `RuleIntentParser`, `ResponseComposer` (личность); в Phase 4 — `HybridRouter` и LLM-провайдеры | — | 2 ✅, 4 |
 | `JarvisAssistant` | App Core: протоколы движков, `UtteranceAssembler`, `CommandProcessor`, встроенные инструменты, `AssistantController` | Core, Settings, Tools, AI | 2 ✅ |
 | `JarvisVoice` (macOS) | захват звука, `SpeechAnalyzer` + `SpeechDetector`, модели языков, TTS, разрешения, PTT-хоткей, список микрофонов | Core, Settings, Assistant | 2 ✅ |
-| `JarvisMac` (macOS) | macOS Integration Layer: каталог и управление приложениями, сайты и поиск, громкость (3a ✅); файлы, окна, Permission Manager (3b/3c); почта, календарь, Keychain (4) | Core, Tools, AI | 3a ✅ |
+| `JarvisMac` (macOS) | macOS Integration Layer: каталог и управление приложениями, сайты и поиск, громкость (3a ✅); файлы — поиск, действия, политика путей, журнал отмены, доступ к папкам (3b); окна (3c); почта, календарь, Keychain (4) | Core, Tools, AI | 3a ✅, 3b |
 | `JarvisMemory` | краткосрочная/долгосрочная память, привычки, пользовательские инструкции | Core | 4 |
 | `JarvisAutomation` | сценарии, триггеры, планировщик, история выполнений | Core, Tools, Memory | 4 |
 | `App` (Xcode target) | UI, composition root, Login Item, (Phase 6) Sparkle | всё выше | 1+ |
