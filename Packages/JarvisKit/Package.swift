@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "JarvisAI", targets: ["JarvisAI"]),
         .library(name: "JarvisAssistant", targets: ["JarvisAssistant"]),
         .library(name: "JarvisVoice", targets: ["JarvisVoice"]),
+        .library(name: "JarvisMac", targets: ["JarvisMac"]),
     ],
     targets: [
         // Ядро: состояния ассистента, приватные типы, логгер, хранилище, журнал аудита.
@@ -46,6 +47,13 @@ let package = Package(
             dependencies: ["JarvisCore", "JarvisSettings", "JarvisAssistant"]
         ),
 
+        // macOS-адаптеры («руки» JARVIS): приложения, сайты, громкость; дальше — файлы, окна.
+        // Каждое действие — инструмент из реестра со своим уровнем риска.
+        .target(
+            name: "JarvisMac",
+            dependencies: ["JarvisCore", "JarvisTools", "JarvisAI"]
+        ),
+
         .testTarget(name: "JarvisCoreTests", dependencies: ["JarvisCore"]),
         .testTarget(name: "JarvisSettingsTests", dependencies: ["JarvisSettings", "JarvisCore"]),
         .testTarget(name: "JarvisToolsTests", dependencies: ["JarvisTools", "JarvisCore"]),
@@ -55,6 +63,7 @@ let package = Package(
             dependencies: ["JarvisAssistant", "JarvisAI", "JarvisCore", "JarvisSettings", "JarvisTools"]
         ),
         .testTarget(name: "JarvisVoiceTests", dependencies: ["JarvisVoice", "JarvisAssistant", "JarvisSettings"]),
+        .testTarget(name: "JarvisMacTests", dependencies: ["JarvisMac", "JarvisTools", "JarvisAI", "JarvisCore"]),
     ],
     swiftLanguageModes: [.v6]
 )

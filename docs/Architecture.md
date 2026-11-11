@@ -53,10 +53,14 @@ JARVIS — нативное macOS-приложение на **Swift 6 + SwiftUI/
 
 ```
 Микрофон (AVAudioEngine)
-  → конвертация в формат модели (только RAM)
+  → усиление тихого микрофона (AGC, до 24 дБ, с ограничителем; ворота и индикатор
+     видят исходный уровень) → конвертация в формат модели (только RAM)
   → [режим wake word] ворота тишины SpeechGate: громкость ниже порога → звук не идёт
      дальше; держим в RAM только ≈0,5 с «до», чтобы не потерять начало слова
-  → VAD (SpeechDetector) — «есть ли речь?»; тишина не транскрибируется
+  → VAD (SpeechDetector, только в режиме wake word) — «есть ли речь?»; тишина не транскрибируется
+     (порог ворот подстраивается под шум микрофона: речь — на 10 дБ громче фона)
+  → подсказка модели: имя ассистента и фразы-активаторы (AnalysisContext; учитывает
+     классическая модель DictationTranscriber — поэтому она выбрана «автоматически»)
   → потоковое on-device STT (SpeechAnalyzer: SpeechTranscriber или DictationTranscriber)
   → WakePhraseMatcher («привет джарвис», «джарвис», «hey jarvis»…)
        ├─ нет фразы → текст немедленно отбрасывается
@@ -73,6 +77,13 @@ JARVIS — нативное macOS-приложение на **Swift 6 + SwiftUI/
   Цена — CPU при постоянной речи рядом (ТВ, созвоны). Если замеры в Phase 2/5 превысят
   цели из [PerformanceTargets.md](PerformanceTargets.md), добавляем первую ступень —
   крошечную Core ML-модель keyword spotting (двухступенчатая схема).
+* **Что видно на экране**: всё услышанное, как распознано, вместе с обращением («Привет,
+  Джарвис, который час?»). Обращение убирается только из команды для исполнения. Сказали одно
+  обращение без команды (клавиша, кнопка, текст) — JARVIS откликается, а не молчит.
+* **Смена аудиоустройства** (Bluetooth-гарнитура переключила режим, сменили микрофон):
+  перезапускается только `AVAudioEngine` внутри сеанса; `SpeechAnalyzer` и уже услышанный
+  текст сохраняются. Сторож перезапускает захват, если буферы перестали приходить. Полное
+  пересоздание сеанса — запасной путь; текст при этом тоже сохраняется (`commitVolatile`).
 * **Конец фразы**: пауза 0,8–1,2 с (настраивается) или лимит 15 с. Отпустили клавишу PTT
   или ворота тишины закрылись — просим модель сразу выдать окончательный текст
   (`SpeechAnalyzer.finalize`), а не ждать следующего звука.
@@ -206,7 +217,7 @@ CloudKit private database (данные пользователя в его iClou
 | `JarvisAI` | нормализация текста, `WakePhraseMatcher`, `RuleIntentParser`, `ResponseComposer` (личность); в Phase 4 — `HybridRouter` и LLM-провайдеры | — | 2 ✅, 4 |
 | `JarvisAssistant` | App Core: протоколы движков, `UtteranceAssembler`, `CommandProcessor`, встроенные инструменты, `AssistantController` | Core, Settings, Tools, AI | 2 ✅ |
 | `JarvisVoice` (macOS) | захват звука, `SpeechAnalyzer` + `SpeechDetector`, модели языков, TTS, разрешения, PTT-хоткей, список микрофонов | Core, Settings, Assistant | 2 ✅ |
-| `JarvisMac` (macOS) | macOS Integration Layer: адаптеры приложений, файлов, системы, браузера, почты, календаря; Permission Manager; Keychain | Core, Tools | 3 |
+| `JarvisMac` (macOS) | macOS Integration Layer: каталог и управление приложениями, сайты и поиск, громкость (3a ✅); файлы, окна, Permission Manager (3b/3c); почта, календарь, Keychain (4) | Core, Tools, AI | 3a ✅ |
 | `JarvisMemory` | краткосрочная/долгосрочная память, привычки, пользовательские инструкции | Core | 4 |
 | `JarvisAutomation` | сценарии, триггеры, планировщик, история выполнений | Core, Tools, Memory | 4 |
 | `App` (Xcode target) | UI, composition root, Login Item, (Phase 6) Sparkle | всё выше | 1+ |

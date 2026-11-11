@@ -115,5 +115,35 @@ public struct ToolOutcome: Sendable {
 /// политику подтверждения и только потом вызывает `run`.
 public protocol Tool: Sendable {
     var descriptor: ToolDescriptor { get }
+
+    /// Что именно будет сделано — для окна подтверждения («закрыть «Safari»»).
+    /// Здесь же инструмент может проверить, что цель существует, и бросить `ToolFailure`
+    /// ещё до вопроса пользователю. По умолчанию — краткое описание инструмента.
+    func describe(_ arguments: ValidatedArguments, context: ToolContext) async throws -> String
+
     func run(_ arguments: ValidatedArguments, context: ToolContext) async throws -> ToolOutcome
+}
+
+extension Tool {
+    public func describe(_ arguments: ValidatedArguments, context: ToolContext) async throws -> String {
+        descriptor.summary
+    }
+}
+
+/// Понятная причина, по которой инструмент не выполнил действие.
+///
+/// `target` — то, что назвал пользователь или нашёл инструмент («Safari»). Это пользовательские
+/// данные: они показываются в ответе, но **никогда не пишутся в лог** (логгер записывает
+/// только тип и код ошибки).
+public enum ToolFailure: Error, Sendable, Equatable {
+    /// Не нашлось (приложение, сайт, файл).
+    case notFound(target: String)
+    /// Приложение не запущено — закрывать нечего.
+    case notRunning(target: String)
+    /// Цель защищена политикой (системное приложение, запрещённая папка).
+    case protectedTarget(target: String)
+    /// macOS не дала выполнить действие (нет разрешения, приложение не ответило).
+    case actionFailed(target: String)
+    /// Устройство или система не поддерживает действие.
+    case unsupported
 }

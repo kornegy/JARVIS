@@ -64,6 +64,16 @@ private struct GeneralSettingsView: View {
                 }
                 Toggle("Показывать окно JARVIS при запуске", isOn: model.binding(\.general.showMainWindowAtLaunch))
             }
+            Section("Интернет") {
+                Picker("Поиск в интернете", selection: model.binding(\.general.searchEngine)) {
+                    ForEach(SearchEngine.allCases, id: \.self) { engine in
+                        Text(engine.displayName).tag(engine)
+                    }
+                }
+                Text("По команде «найди в интернете…» JARVIS открывает страницу поиска в вашем браузере. Сам JARVIS в интернет не ходит.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .onAppear { nameDraft = model.settings.general.assistantName }
@@ -82,6 +92,7 @@ private struct VoiceSettingsView: View {
     @State private var devices: [AudioInputDevice] = []
     @State private var voices: [VoiceOption] = []
     @State private var modelStatus: SpeechModelStatus?
+    @State private var usesBluetoothMicrophone = false
 
     var body: some View {
         Form {
@@ -118,6 +129,9 @@ private struct VoiceSettingsView: View {
                         Text(preference.displayName).tag(preference)
                     }
                 }
+                Text("«Автоматически» — классическая модель: ей JARVIS подсказывает своё имя и фразы-активаторы, поэтому «Джарвис» она узнаёт лучше. «Новая модель Apple» точнее на длинных фразах, но подсказки не учитывает.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle("Показывать текст во время речи", isOn: model.binding(\.voice.showLiveTranscript))
                 Text("Если выключить, нагрузка на процессор ниже: модель не пересчитывает текст на лету. Команда появится после паузы или когда отпустите клавишу.")
                     .font(.caption)
@@ -140,13 +154,23 @@ private struct VoiceSettingsView: View {
                 Picker("Микрофон", selection: model.binding(\.voice.inputDeviceUID)) {
                     Text("Системный по умолчанию").tag(String?.none)
                     ForEach(devices) { device in
-                        Text(device.name).tag(String?.some(device.uid))
+                        Text(device.isBluetooth ? "\(device.name) (Bluetooth)" : device.name)
+                            .tag(String?.some(device.uid))
                     }
+                }
+                if usesBluetoothMicrophone {
+                    Text("Сейчас выбран микрофон Bluetooth-гарнитуры. Он тише и передаёт сжатый звук, а после включения наушники 1–2 секунды переключают режим — начало фразы может пропасть. Лучший вариант: выбрать здесь встроенный микрофон Mac. Наушники продолжат играть в обычном качестве.")
+                        .font(.caption)
+                        .foregroundStyle(Color.orange)
                 }
                 CommittingSlider(title: "Чувствительность", model: model, keyPath: \.voice.microphoneSensitivity, range: 0...1) {
                     "\(Int(($0 * 100).rounded())) %"
                 }
                 Text("Если JARVIS не слышит тихую речь — увеличьте. Если реагирует на шум — уменьшите.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Усиливать тихий микрофон", isOn: model.binding(\.voice.automaticGain))
+                Text("Микрофон AirPods и многих гарнитур на Mac очень тихий, а громкость его входа macOS менять не даёт. JARVIS сам усиливает тихую речь (до 24 дБ, без искажений). Рядом с индикатором микрофона видно уровень до усиления: обычная речь — примерно от −45 до −20 дБ.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 CommittingSlider(title: "Пауза конца фразы", model: model, keyPath: \.voice.endOfSpeechSilenceSeconds, range: 0.5...3) {
@@ -179,7 +203,9 @@ private struct VoiceSettingsView: View {
             devices = AudioInputDevices.all()
             voices = SystemSpeechSynthesizer.voices(for: model.settings.voice.locale)
             phrasesDraft = model.settings.voice.wakePhrases.joined(separator: ", ")
+            refreshBluetoothHint()
         }
+        .onChange(of: model.settings.voice.inputDeviceUID) { refreshBluetoothHint() }
         .onChange(of: model.settings.voice.recognitionLocale) {
             voices = SystemSpeechSynthesizer.voices(for: model.settings.voice.locale)
         }
@@ -188,6 +214,11 @@ private struct VoiceSettingsView: View {
             modelStatus = await model.speechModelStatus()
         }
         .onDisappear { commitPhrases() }
+    }
+
+    private func refreshBluetoothHint() {
+        let selected = model.settings.voice.inputDeviceUID
+        usesBluetoothMicrophone = AudioInputDevices.effectiveInput(selectedUID: selected)?.isBluetooth ?? false
     }
 
     private func commitPhrases() {

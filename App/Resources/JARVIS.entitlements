@@ -10,5 +10,8 @@
 <dict>
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- Phase 3a: закрытие приложений по команде (macOS спросит разрешение для каждого приложения). -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
 </dict>
 </plist>

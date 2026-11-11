@@ -39,6 +39,11 @@ public struct SpeechInputConfiguration: Sendable, Equatable {
     /// Промежуточный текст во время речи. Без него модель выдаёт только окончательный
     /// текст (после паузы или отпускания клавиши) и не пересчитывает его на лету.
     public var liveResults: Bool
+    /// Редкие слова и фразы, которые модель должна узнавать («Джарвис», «Привет, Джарвис»).
+    /// Передаются только локальной модели распознавания на этом Mac.
+    public var vocabulary: [String]
+    /// Усиливать тихий микрофон (AirPods и т.п.) перед распознаванием.
+    public var automaticGain: Bool
 
     public init(
         locale: Locale,
@@ -46,7 +51,9 @@ public struct SpeechInputConfiguration: Sendable, Equatable {
         sensitivity: Double = 0.5,
         continuous: Bool = false,
         modelPreference: RecognitionModelPreference = .automatic,
-        liveResults: Bool = true
+        liveResults: Bool = true,
+        vocabulary: [String] = [],
+        automaticGain: Bool = true
     ) {
         self.locale = locale
         self.inputDeviceUID = inputDeviceUID
@@ -54,6 +61,8 @@ public struct SpeechInputConfiguration: Sendable, Equatable {
         self.continuous = continuous
         self.modelPreference = modelPreference
         self.liveResults = liveResults
+        self.vocabulary = vocabulary
+        self.automaticGain = automaticGain
     }
 }
 
@@ -64,6 +73,47 @@ public enum SpeechInputEvent: Sendable, Equatable {
     /// Аудиоустройство изменилось (подключили наушники и т.п.) — захват нужно перезапустить.
     case interrupted
     case failed(FailureCode)
+    /// Уровень сигнала микрофона, dBFS (0 — максимум, −60 — очень тихо). Приходит только
+    /// при заметном изменении — для индикатора «микрофон слышит».
+    case inputLevel(Float)
+    /// За первые секунды не пришло ни одного звука: устройство молчит (частая история
+    /// с Bluetooth-гарнитурами, если выбрать их в приложении, а не в системе).
+    case silentInput
+}
+
+/// Подсказка модели распознавания: имя ассистента и фразы-активаторы.
+///
+/// Слово «Джарвис» — редкое имя собственное: без подсказки модель часто пишет «Джар…»,
+/// а потом стирает. Подсказку учитывает классическая модель (`DictationTranscriber`).
+public enum RecognitionVocabulary {
+    public static let assistantNames = ["Джарвис", "Jarvis"]
+
+    public static func make(wakePhrases: [String]) -> [String] {
+        var result: [String] = []
+        func add(_ phrase: String) {
+            let words = phrase.split(whereSeparator: { $0.isWhitespace || $0 == "," })
+            guard !words.isEmpty else { return }
+            let capitalized = words.map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+            if !result.contains(capitalized) { result.append(capitalized) }
+        }
+        assistantNames.forEach(add)
+        for phrase in wakePhrases {
+            add(phrase)
+            if let last = phrase.split(whereSeparator: { $0.isWhitespace || $0 == "," }).last {
+                add(String(last))
+            }
+        }
+        return result
+    }
+}
+
+/// Пороги сигнала микрофона.
+public enum MicrophoneSignal {
+    /// Ниже этого уровня — цифровая тишина (одни нули), а не тихая комната
+    /// (у настоящего микрофона шум не опускается ниже примерно −90 dBFS).
+    public static let digitalSilence: Float = -120
+    /// Сколько ждать хоть какой-то звук после включения микрофона.
+    public static let silenceCheckDelay: Duration = .seconds(3)
 }
 
 /// Ошибки запуска распознавания.

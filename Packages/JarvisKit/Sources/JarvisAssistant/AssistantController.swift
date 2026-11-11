@@ -14,6 +14,8 @@ public enum AssistantProblem: Sendable, Equatable {
     case speechModelDownloadFailed
     case languageNotSupported
     case microphoneUnavailable
+    /// Микрофон включён, но звука нет (Bluetooth-гарнитура выбрана в приложении и т.п.).
+    case microphoneSilent
 
     public var message: String {
         switch self {
@@ -31,6 +33,8 @@ public enum AssistantProblem: Sendable, Equatable {
             "Этот язык не поддерживается для распознавания на устройстве. Выберите другой язык в настройках."
         case .microphoneUnavailable:
             "Не удалось запустить микрофон. Проверьте выбранное устройство в настройках."
+        case .microphoneSilent:
+            "Микрофон не передаёт звук. Для AirPods и других Bluetooth-гарнитур: в JARVIS выберите «Настройки → Голос → Микрофон: Системный по умолчанию», а гарнитуру — в «Системные настройки → Звук → Вход»."
         }
     }
 }
@@ -55,6 +59,10 @@ public final class AssistantController {
     public private(set) var lastReply: String?
     public private(set) var problem: AssistantProblem?
     public private(set) var isDownloadingModel = false
+    /// Уровень сигнала микрофона (dBFS), пока идёт захват; `nil` — неизвестен.
+    public private(set) var inputLevel: Float?
+    /// Действие ждёт подтверждения пользователя (для окна «Да / Нет»).
+    public private(set) var pendingConfirmation: PendingAction?
 
     public var state: AssistantState { machine.state }
 
@@ -65,6 +73,8 @@ public final class AssistantController {
     @ObservationIgnored public var onPrivacyModeRequest: ((Bool, CommandSource) -> Void)?
     /// В журнал добавлена запись — интерфейс может обновить список.
     @ObservationIgnored public var onActivityRecorded: (() -> Void)?
+    /// Появился или исчез вопрос подтверждения — приложение показывает/прячет окно.
+    @ObservationIgnored public var onConfirmationChanged: ((PendingAction?) -> Void)?
 
     private let speechInput: any SpeechInputEngine
     private let speechOutput: any SpeechOutputEngine
@@ -74,6 +84,7 @@ public final class AssistantController {
     private let processor: CommandProcessor
     private let auditLog: AuditLog
     private let now: () -> TimeInterval
+    private let confirmationTimeout: Duration
     private let log = JarvisLogger(category: "assistant")
 
     @ObservationIgnored private var settings: JarvisSettings
@@ -82,6 +93,9 @@ public final class AssistantController {
     @ObservationIgnored private var tickTask: Task<Void, Never>?
     @ObservationIgnored private var replyClearTask: Task<Void, Never>?
     @ObservationIgnored private var isStartingEngine = false
+    @ObservationIgnored private var confirmationTimeoutTask: Task<Void, Never>?
+    /// Микрофон слушает ответ «да/нет», а не новую команду.
+    @ObservationIgnored private var isCapturingConfirmation = false
 
     public init(
         settings: JarvisSettings,
@@ -92,7 +106,8 @@ public final class AssistantController {
         sounds: any FeedbackSounds,
         processor: CommandProcessor,
         auditLog: AuditLog,
-        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+        now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        confirmationTimeout: Duration = .seconds(30)
     ) {
         self.settings = settings
         self.speechInput = speechInput
@@ -103,6 +118,7 @@ public final class AssistantController {
         self.processor = processor
         self.auditLog = auditLog
         self.now = now
+        self.confirmationTimeout = confirmationTimeout
         self.machine = AssistantStateMachine(listeningMode: settings.voice.listeningMode)
         self.assembler = UtteranceAssembler(
             matcher: WakePhraseMatcher(phrases: settings.voice.wakePhrases),
@@ -122,11 +138,16 @@ public final class AssistantController {
 
     public func disable(source: CommandSource = .userInterface) async {
         guard machine.state != .disabled else { return }
+        let pending = pendingConfirmation
         machine.handle(.disable)
         speechOutput.stopSpeaking()
+        clearPendingConfirmation()
         cancelCapture()
         problem = nil
         await stopEngine()
+        if let pending {
+            _ = await processor.decline(pending, reason: .cancelled, context: commandContext())
+        }
         await record("assistant.disable", source: source)
     }
 
@@ -180,9 +201,31 @@ public final class AssistantController {
     /// Команда, набранная текстом. Обрабатывается так же, как голосовая, но без ответа голосом.
     public func submitTypedCommand(_ text: String) async {
         let command = assembler.matcher.strippingAddress(from: text)
-        guard !command.isEmpty, machine.handle(.commandReceived) else { return }
+        // Пока JARVIS ждёт подтверждения, текст «да»/«нет» — это ответ.
+        if pendingConfirmation != nil, machine.state == .awaitingConfirmation {
+            await answerConfirmation(command)
+            return
+        }
+        let phrase = TextNormalizer.normalize(text)
+        guard !phrase.isEmpty, machine.handle(.commandReceived) else { return }
         lastReply = nil
-        await execute(Utterance(text: command, locale: settings.voice.locale), source: .typedText, speakReply: false)
+        // Написали только «Привет, Джарвис» — откликаемся так же, как на голос.
+        await execute(
+            Utterance(text: command.isEmpty ? phrase : command, locale: settings.voice.locale),
+            source: .typedText,
+            speakReply: false,
+            addressOnly: command.isEmpty
+        )
+    }
+
+    /// Кнопка «Да» / клавиша ⏎ в окне подтверждения.
+    public func confirmPendingAction() async {
+        await resolveConfirmation(.approved)
+    }
+
+    /// Кнопка «Нет» / клавиша Esc / закрытие окна подтверждения.
+    public func declinePendingAction() async {
+        await resolveConfirmation(.declined(.declined))
     }
 
     /// Новые настройки (из окна настроек или после голосовой команды).
@@ -201,6 +244,8 @@ public final class AssistantController {
             || previous.voice.microphoneSensitivity != newSettings.voice.microphoneSensitivity
             || previous.voice.recognitionModel != newSettings.voice.recognitionModel
             || previous.voice.showLiveTranscript != newSettings.voice.showLiveTranscript
+            || previous.voice.wakePhrases != newSettings.voice.wakePhrases
+            || previous.voice.automaticGain != newSettings.voice.automaticGain
         if captureChanged {
             problem = nil
             if case .failed(_) = machine.state { machine.handle(.recover) }
@@ -252,6 +297,11 @@ public final class AssistantController {
     }
 
     private func beginManualCapture(trigger: UtteranceAssembler.Trigger) async {
+        // Ждём «да/нет»: клавиша и кнопка «Говорить» слушают ответ, а не новую команду.
+        if machine.state == .awaitingConfirmation {
+            await beginConfirmationCapture(trigger: trigger)
+            return
+        }
         if machine.state == .speaking { speechOutput.stopSpeaking() }
         guard machine.handle(.pushToTalkPressed) else { return }
         lastReply = nil
@@ -274,7 +324,9 @@ public final class AssistantController {
             sensitivity: settings.voice.microphoneSensitivity,
             continuous: wantsContinuousListening,
             modelPreference: settings.voice.recognitionModel,
-            liveResults: settings.voice.showLiveTranscript
+            liveResults: settings.voice.showLiveTranscript,
+            vocabulary: RecognitionVocabulary.make(wakePhrases: settings.voice.wakePhrases),
+            automaticGain: settings.voice.automaticGain
         )
     }
 
@@ -346,6 +398,7 @@ public final class AssistantController {
     private func stopEngine() async {
         eventsTask?.cancel()
         eventsTask = nil
+        inputLevel = nil
         if speechInput.isCapturing {
             await speechInput.stop()
             log.notice("Speech capture stopped")
@@ -367,11 +420,22 @@ public final class AssistantController {
                 apply(events)
             }
         case .interrupted:
+            // Сеанс распознавания будет пересоздан: уже услышанный текст сохраняем.
+            assembler.commitVolatile()
             Task { [weak self] in
                 guard let self else { return }
                 await self.stopEngine()
+                // Bluetooth-гарнитура переключается в режим «с микрофоном» не мгновенно —
+                // даём устройству устояться, иначе перезапуск попадёт на ту же перестройку.
+                try? await Task.sleep(for: .milliseconds(500))
                 await self.reconcileListening()
             }
+        case .inputLevel(let level):
+            inputLevel = level
+            if problem == .microphoneSilent, level > MicrophoneSignal.digitalSilence { problem = nil }
+        case .silentInput:
+            log.notice("Microphone delivers no signal")
+            if problem == nil { problem = .microphoneSilent }
         case .failed(let code):
             switch code {
             case .speechRecognitionNotAuthorized: fail(.speechRecognitionDenied, code: code)
@@ -386,6 +450,7 @@ public final class AssistantController {
     private var acceptsTranscripts: Bool {
         switch machine.state {
         case .idle(.wakeWord), .listening: true
+        case .awaitingConfirmation: isCapturingConfirmation
         default: false
         }
     }
@@ -403,15 +468,38 @@ public final class AssistantController {
                 }
             case .captureUpdated(let text):
                 liveTranscript = text
+            case .commandReady(let utterance, _) where isCapturingConfirmation:
+                endConfirmationCapture()
+                Task { [weak self] in await self?.answerConfirmation(utterance.text) }
+            case .addressedOnly where isCapturingConfirmation:
+                // Вместо «да»/«нет» сказали только имя — это не ответ.
+                endConfirmationCapture()
+                Task { [weak self] in await self?.answerConfirmation("") }
+            case .captureEnded where isCapturingConfirmation:
+                // Промолчали — ждём кнопку или таймаут; микрофон в режиме PTT закрываем.
+                endConfirmationCapture()
+                Task { [weak self] in await self?.reconcileListening() }
             case .commandReady(let utterance, let trigger):
                 stopTicking()
                 speechInput.setForcedListening(false)
                 guard machine.handle(.utteranceCaptured) else { continue }
                 play(.done)
-                liveTranscript = utterance.text
+                // На экране остаётся услышанная фраза целиком; команду показываем,
+                // только если живого текста не было.
+                if (liveTranscript ?? "").isEmpty { liveTranscript = utterance.text }
                 let source: CommandSource = trigger == .wakePhrase ? .voiceWakeWord : .voicePushToTalk
                 Task { [weak self] in
                     await self?.execute(utterance, source: source, speakReply: true)
+                }
+            case .addressedOnly(let utterance, let trigger):
+                // «Привет, Джарвис» без команды — откликаемся, а не молчим.
+                stopTicking()
+                speechInput.setForcedListening(false)
+                guard machine.handle(.utteranceCaptured) else { continue }
+                play(.done)
+                let source: CommandSource = trigger == .wakePhrase ? .voiceWakeWord : .voicePushToTalk
+                Task { [weak self] in
+                    await self?.execute(utterance, source: source, speakReply: true, addressOnly: true)
                 }
             case .captureEnded:
                 stopTicking()
@@ -425,22 +513,26 @@ public final class AssistantController {
 
     // MARK: - Выполнение
 
-    private func execute(_ utterance: Utterance, source: CommandSource, speakReply: Bool) async {
-        let context = CommandContext(
-            locale: settings.voice.locale,
-            personality: Personality(
-                humor: settings.personality.humor,
-                verbosity: settings.personality.verbosity,
-                formality: settings.personality.formality
-            ),
-            confirmationPolicy: ConfirmationPolicy(
-                confirmConsequentialActions: settings.confirmations.confirmConsequentialActions,
-                allowVoiceConfirmationForDangerousActions: settings.confirmations.allowVoiceConfirmationForDangerousActions
-            )
-        )
-        let outcome = await processor.handle(utterance, source: source, context: context)
-
+    private func execute(
+        _ utterance: Utterance,
+        source: CommandSource,
+        speakReply: Bool,
+        addressOnly: Bool = false
+    ) async {
+        let context = commandContext()
+        let outcome = addressOnly
+            ? processor.acknowledgeAddress(utterance, context: context)
+            : await processor.handle(utterance, source: source, context: context)
+        if let pending = outcome.pendingAction {
+            await askForConfirmation(pending, question: outcome.reply, speak: speakReply)
+            return
+        }
         machine.handle(.planReady(requiresConfirmation: false))
+        await finish(outcome, source: source, speakReply: speakReply)
+    }
+
+    /// Общий конец команды: директивы, ответ на экране и голосом, возврат к ожиданию.
+    private func finish(_ outcome: CommandOutcome, source: CommandSource, speakReply: Bool) async {
         if case .setPrivacyMode(let enabled)? = outcome.directive {
             onPrivacyModeRequest?(enabled, source)
         }
@@ -448,18 +540,10 @@ public final class AssistantController {
         if !outcome.executedActions.isEmpty { onActivityRecorded?() }
 
         liveTranscript = nil
-        if !outcome.reply.isEmpty {
-            lastReply = outcome.reply
-            scheduleReplyClear()
-        }
+        show(outcome.reply)
 
         if speakReply, settings.voice.speakResponses, !outcome.reply.isEmpty, machine.handle(.speechStarted) {
-            await speechOutput.speak(outcome.reply, settings: SpeechOutputSettings(
-                locale: settings.voice.locale,
-                voiceIdentifier: settings.voice.voiceIdentifier,
-                rate: settings.voice.speechRate,
-                volume: settings.voice.speechVolume
-            ))
+            await speechOutput.speak(outcome.reply, settings: speechSettings)
             machine.handle(.speechFinished)
         }
 
@@ -478,11 +562,150 @@ public final class AssistantController {
         await reconcileListening()
     }
 
+    // MARK: - Подтверждение
+
+    private enum Resolution {
+        case approved
+        case declined(DeclineReason)
+    }
+
+    /// Задать вопрос и ждать ответа: голосом («да»/«нет»), кнопкой, ⏎/Esc или текстом.
+    private func askForConfirmation(_ pending: PendingAction, question: String, speak: Bool) async {
+        machine.handle(.planReady(requiresConfirmation: true))
+        pendingConfirmation = pending
+        onConfirmationChanged?(pending)
+        liveTranscript = nil
+        show(question)
+        startConfirmationTimeout(for: pending.id)
+
+        if speak, settings.voice.speakResponses {
+            // Микрофон для ответа открывается только после вопроса: собственный голос
+            // JARVIS не должен попасть в ответ (в самом вопросе нет слов «да» и «нет»).
+            await speechOutput.speak(question, settings: speechSettings)
+        }
+        guard pendingConfirmation?.id == pending.id else { return }
+        assembler.cancel()
+        if speak, pending.allowsVoiceConfirmation {
+            await beginConfirmationCapture(trigger: .manualTap)
+        } else {
+            await reconcileListening()
+        }
+    }
+
+    /// Слушать ответ «да/нет» (только если действие можно подтверждать голосом).
+    private func beginConfirmationCapture(trigger: UtteranceAssembler.Trigger) async {
+        guard let pending = pendingConfirmation, pending.allowsVoiceConfirmation, !isCapturingConfirmation else { return }
+        speechOutput.stopSpeaking()
+        assembler.beginCapture(trigger: trigger, at: now())
+        isCapturingConfirmation = true
+        liveTranscript = ""
+        if !speechInput.isCapturing {
+            guard await startEngine() else { return }
+        }
+        guard pendingConfirmation?.id == pending.id, isCapturingConfirmation else { return }
+        speechInput.setForcedListening(true)
+        play(.listening)
+        startTicking()
+    }
+
+    private func endConfirmationCapture() {
+        isCapturingConfirmation = false
+        stopTicking()
+        speechInput.setForcedListening(false)
+        liveTranscript = nil
+    }
+
+    /// Ответ голосом или текстом. Непонятный ответ — не согласие.
+    private func answerConfirmation(_ text: String) async {
+        switch ConfirmationAnswer.parse(text) {
+        case true?: await resolveConfirmation(.approved)
+        case false?: await resolveConfirmation(.declined(.declined))
+        case nil: await resolveConfirmation(.declined(.notUnderstood))
+        }
+    }
+
+    private func resolveConfirmation(_ resolution: Resolution, expectedID: UUID? = nil) async {
+        guard let pending = pendingConfirmation, expectedID == nil || expectedID == pending.id else { return }
+        clearPendingConfirmation()
+        let speakReply = pending.source != .typedText
+        let context = commandContext()
+        switch resolution {
+        case .approved:
+            machine.handle(.confirmationResolved(approved: true))
+            let outcome = await processor.confirm(pending, context: context)
+            await finish(outcome, source: pending.source, speakReply: speakReply)
+        case .declined(let reason):
+            machine.handle(.confirmationResolved(approved: false))
+            let outcome = await processor.decline(pending, reason: reason, context: context)
+            onActivityRecorded?()
+            await finish(outcome, source: pending.source, speakReply: speakReply)
+        }
+    }
+
+    private func startConfirmationTimeout(for id: UUID) {
+        confirmationTimeoutTask?.cancel()
+        let timeout = confirmationTimeout
+        confirmationTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            // Решение — в отдельной задаче: эту задачу отменит само снятие вопроса.
+            Task { [weak self] in await self?.resolveConfirmation(.declined(.timedOut), expectedID: id) }
+        }
+    }
+
+    private func clearPendingConfirmation() {
+        confirmationTimeoutTask?.cancel()
+        confirmationTimeoutTask = nil
+        if isCapturingConfirmation {
+            assembler.cancel()
+            endConfirmationCapture()
+        }
+        guard pendingConfirmation != nil else { return }
+        pendingConfirmation = nil
+        onConfirmationChanged?(nil)
+    }
+
+    private func commandContext() -> CommandContext {
+        CommandContext(
+            locale: settings.voice.locale,
+            personality: Personality(
+                humor: settings.personality.humor,
+                verbosity: settings.personality.verbosity,
+                formality: settings.personality.formality
+            ),
+            confirmationPolicy: ConfirmationPolicy(
+                confirmConsequentialActions: settings.confirmations.confirmConsequentialActions,
+                allowVoiceConfirmationForDangerousActions: settings.confirmations.allowVoiceConfirmationForDangerousActions
+            ),
+            searchEngine: settings.general.searchEngine.rawValue
+        )
+    }
+
+    private var speechSettings: SpeechOutputSettings {
+        SpeechOutputSettings(
+            locale: settings.voice.locale,
+            voiceIdentifier: settings.voice.voiceIdentifier,
+            rate: settings.voice.speechRate,
+            volume: settings.voice.speechVolume
+        )
+    }
+
+    private func show(_ reply: String) {
+        guard !reply.isEmpty else { return }
+        lastReply = reply
+        scheduleReplyClear()
+    }
+
     // MARK: - Вспомогательное
 
     private func fail(_ newProblem: AssistantProblem, code: FailureCode) {
         log.error("Assistant problem", .token("code", Self.token(for: code)))
         problem = newProblem
+        if let pending = pendingConfirmation {
+            clearPendingConfirmation()
+            let context = commandContext()
+            Task { [weak self] in _ = await self?.processor.decline(pending, reason: .cancelled, context: context) }
+        }
         cancelCapture()
         if machine.state.isEnabled { machine.handle(.failed(code)) }
         play(.failure)
@@ -490,6 +713,7 @@ public final class AssistantController {
 
     private func cancelCapture() {
         assembler.cancel()
+        isCapturingConfirmation = false
         speechInput.setForcedListening(false)
         stopTicking()
         liveTranscript = nil

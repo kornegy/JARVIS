@@ -22,7 +22,7 @@ struct MenuBarContentView: View {
             }
 
             MicrophonePauseButton(model: model)
-            MicrophoneIndicator(isCapturing: model.isMicrophoneCapturing)
+            MicrophoneIndicator(isCapturing: model.isMicrophoneCapturing, level: model.assistant.inputLevel)
 
             if model.isEnabled {
                 Text(model.voiceHint)

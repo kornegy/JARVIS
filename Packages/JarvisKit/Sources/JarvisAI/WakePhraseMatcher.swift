@@ -35,6 +35,24 @@ public struct WakePhraseMatcher: Sendable, Equatable {
         return words[match.end...].joined(separator: " ")
     }
 
+    /// Услышанный текст начиная с фразы-активатора — для показа на экране. Регистр и знаки —
+    /// как распознано; всё сказанное до фразы (чужая речь) отбрасывается.
+    public func heardText(fromWakePhraseIn text: String) -> String {
+        let words = TextNormalizer.words(text)
+        guard let match = firstMatch(of: phrases, in: words), match.start > 0 else { return text }
+        var wordsToDrop = match.start
+        var tokens = text.split(whereSeparator: { $0.isWhitespace })
+        while wordsToDrop > 0, let first = tokens.first {
+            wordsToDrop -= TextNormalizer.words(String(first)).count
+            tokens.removeFirst()
+        }
+        // Знаки препинания, оставшиеся перед фразой («— hey Jarvis»), тоже убираем.
+        while let first = tokens.first, TextNormalizer.words(String(first)).isEmpty {
+            tokens.removeFirst()
+        }
+        return tokens.joined(separator: " ")
+    }
+
     /// Текст команды после фразы-активатора или имени (режим wake word).
     /// Если обращения нет — пустая строка.
     public func command(afterAddressIn text: String) -> String {

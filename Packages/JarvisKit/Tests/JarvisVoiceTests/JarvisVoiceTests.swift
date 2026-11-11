@@ -94,6 +94,79 @@ struct JarvisVoiceTests {
     }
 }
 
+@Suite("Усиление тихого микрофона")
+struct AutomaticGainTests {
+    @Test("Тихая речь (AirPods) — усиление растёт до предела 24 дБ")
+    func quietSpeechIsBoosted() {
+        var gain = AutomaticGain()
+        for _ in 0..<40 { _ = gain.update(level: -50) }
+        #expect(gain.gainDecibels == 24)
+        #expect(abs(gain.multiplier - 15.85) < 0.01)
+    }
+
+    @Test("Громкая речь сразу убирает усиление — без искажений")
+    func loudSpeechNeedsNoGain() {
+        var gain = AutomaticGain()
+        for _ in 0..<40 { _ = gain.update(level: -50) }
+        #expect(gain.update(level: -18) == 1)
+        #expect(gain.gainDecibels == 0)
+    }
+
+    @Test("Тишина и шум усиление не меняют")
+    func silenceHolds() {
+        var gain = AutomaticGain()
+        let before = gain.gainDecibels
+        for _ in 0..<100 { _ = gain.update(level: -80) }
+        #expect(gain.gainDecibels == before)
+    }
+
+    @Test("Усиление ограничено самым громким отсчётом — звук не искажается")
+    func amplificationIsLimited() throws {
+        let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        func makeBuffer(_ values: [Float]) throws -> AVAudioPCMBuffer {
+            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(values.count)))
+            buffer.frameLength = AVAudioFrameCount(values.count)
+            let samples = try #require(buffer.floatChannelData?[0])
+            for (index, value) in values.enumerated() { samples[index] = value }
+            return buffer
+        }
+
+        // Тихий буфер усиливается в полную силу.
+        let quiet = try makeBuffer([0.01, -0.01, 0.02, -0.02])
+        let boostedQuiet = try #require(AudioLevel.amplified(quiet, by: 10))
+        let quietOut = try #require(boostedQuiet.floatChannelData?[0])
+        #expect(abs(quietOut[0] - 0.1) < 0.0001)
+        #expect(abs(quietOut[3] + 0.2) < 0.0001)
+        #expect(quiet.floatChannelData?[0][0] == 0.01) // исходный буфер не меняется
+
+        // Громкий отсчёт ограничивает усиление: пик не выше 0,9, форма сигнала сохраняется.
+        let mixed = try makeBuffer([0.01, -0.01, 0.5, -0.5])
+        let boostedMixed = try #require(AudioLevel.amplified(mixed, by: 10))
+        let mixedOut = try #require(boostedMixed.floatChannelData?[0])
+        #expect(abs(mixedOut[2] - 0.9) < 0.0001)
+        #expect(abs(mixedOut[0] - 0.018) < 0.0001)
+
+        // Уже громкий сигнал не трогаем.
+        #expect(try AudioLevel.amplified(makeBuffer([0.95, -0.9]), by: 10) == nil)
+    }
+}
+
+@Suite("Индикатор уровня микрофона")
+struct LevelMeterTests {
+    @Test("Пик за четверть секунды, шаг 5 дБ, без повторов")
+    func peaksAndSteps() {
+        var meter = LevelMeter()
+        // 0,1 с — ещё рано.
+        #expect(meter.update(-42, frames: 1600, sampleRate: 16_000) == nil)
+        // Ещё 0,2 с, громче — отдаём пик, округлённый до 5 дБ.
+        #expect(meter.update(-31, frames: 3200, sampleRate: 16_000) == -30)
+        // Тот же уровень — без события (интерфейс не перерисовывается).
+        #expect(meter.update(-29, frames: 4000, sampleRate: 16_000) == nil)
+        // Цифровая тишина ограничивается снизу.
+        #expect(meter.update(-180, frames: 4000, sampleRate: 16_000) == -120)
+    }
+}
+
 @Suite("Ворота тишины перед распознаванием")
 struct SpeechGateTests {
     private func makeGate() -> SpeechGate<Int> {
@@ -128,5 +201,36 @@ struct SpeechGateTests {
         #expect(gate.isOpen)
         #expect(gate.process(3, startFrame: 400, frameCount: 100, level: -70).isEmpty)
         #expect(!gate.isOpen) // момент закрытия — сигнал выдать окончательный текст
+    }
+
+    @Test("Тихий микрофон (AirPods): порог опускается к шуму, тихая речь проходит")
+    func quietMicrophone() {
+        var gate = makeGate() // настройка: −50 dBFS
+        for index in 0..<5 {
+            #expect(gate.process(index, startFrame: Int64(index * 100), frameCount: 100, level: -74).isEmpty)
+        }
+        #expect(gate.effectiveThreshold == -64)
+        // −58 dBFS тише настройки, но на 16 дБ громче шума — это речь.
+        #expect(gate.process(5, startFrame: 500, frameCount: 100, level: -58).map(\.buffer) == [3, 4, 5])
+    }
+
+    @Test("Шумная комната: порог не строже настройки")
+    func noisyRoomNeverStricter() {
+        var gate = makeGate()
+        for index in 0..<50 {
+            _ = gate.process(index, startFrame: Int64(index * 100), frameCount: 100, level: -45)
+        }
+        #expect(gate.effectiveThreshold == -50)
+        #expect(gate.isOpen)
+    }
+
+    @Test("Цифровая тишина не делает ворота сверхчувствительными")
+    func digitalSilence() {
+        var gate = makeGate()
+        for index in 0..<5 {
+            _ = gate.process(index, startFrame: Int64(index * 100), frameCount: 100, level: -180)
+        }
+        #expect(gate.effectiveThreshold == -65)
+        #expect(gate.process(5, startFrame: 500, frameCount: 100, level: -70).isEmpty)
     }
 }

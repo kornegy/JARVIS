@@ -23,6 +23,9 @@ public struct UtteranceAssembler: Sendable {
         /// Сколько ждать текст после отпускания, если его ещё нет совсем (без живого
         /// текста модель выдаёт всё сразу, когда закончит фразу).
         public var releaseWaitWithoutText: TimeInterval
+        /// Пауза после одного только обращения («Привет, Джарвис»), после которой JARVIS
+        /// откликается. Длиннее обычной: команду могут договаривать после паузы.
+        public var addressOnlyPause: TimeInterval
         /// Максимальная длительность одной команды.
         public var maxCaptureDuration: TimeInterval
 
@@ -31,12 +34,14 @@ public struct UtteranceAssembler: Sendable {
             followUpTimeout: TimeInterval = 6,
             releaseGrace: TimeInterval = 0.7,
             releaseWaitWithoutText: TimeInterval = 2.5,
+            addressOnlyPause: TimeInterval = 2.0,
             maxCaptureDuration: TimeInterval = 20
         ) {
             self.endOfSpeechSilence = endOfSpeechSilence
             self.followUpTimeout = followUpTimeout
             self.releaseGrace = releaseGrace
             self.releaseWaitWithoutText = releaseWaitWithoutText
+            self.addressOnlyPause = addressOnlyPause
             self.maxCaptureDuration = maxCaptureDuration
         }
     }
@@ -52,9 +57,15 @@ public struct UtteranceAssembler: Sendable {
 
     public enum Event: Sendable, Equatable {
         case wakePhraseDetected
+        /// Изменился услышанный текст — для показа на экране. Это **всё**, что распознано
+        /// (вместе с обращением «Привет, Джарвис»), а не только команда: пользователь должен
+        /// видеть, что именно услышал JARVIS.
         case captureUpdated(String)
         case commandReady(Utterance, Trigger)
-        /// Захват закончился без команды (сказали только «Привет, Джарвис» или промолчали).
+        /// Сказали только обращение («Привет, Джарвис», «Джарвис») без команды, нажав клавишу
+        /// или кнопку. На это нужно откликнуться, а не молчать.
+        case addressedOnly(Utterance, Trigger)
+        /// Захват закончился без команды (промолчали после фразы-активатора).
         case captureEnded
     }
 
@@ -63,12 +74,15 @@ public struct UtteranceAssembler: Sendable {
         var startedAt: TimeInterval
         var lastActivityAt: TimeInterval
         var releasedAt: TimeInterval?
+        /// Последние слова предыдущего фрагмента: с них могла начаться фраза-активатор
+        /// («привет» | «джарвис, который час»).
+        var lead = ""
         var finalized = ""
         var volatile = ""
-        var lastCommand = ""
+        var lastHeard = ""
 
         var raw: String {
-            [finalized, volatile].filter { !$0.isEmpty }.joined(separator: " ")
+            [lead, finalized, volatile].filter { !$0.isEmpty }.joined(separator: " ")
         }
     }
 
@@ -115,6 +129,16 @@ public struct UtteranceAssembler: Sendable {
         phase = .waiting(tail: [])
     }
 
+    /// Распознавание перезапускается (сменилось аудиоустройство): уже услышанный, но ещё не
+    /// подтверждённый моделью текст сохраняем. Иначе первый же фрагмент нового сеанса
+    /// заменил бы его — на экране это выглядело как «записал половину слова и стёр».
+    public mutating func commitVolatile() {
+        guard case .capturing(var capture) = phase, !capture.volatile.isEmpty else { return }
+        capture.finalized = [capture.finalized, capture.volatile].filter { !$0.isEmpty }.joined(separator: " ")
+        capture.volatile = ""
+        phase = .capturing(capture)
+    }
+
     /// Новый фрагмент распознанного текста.
     public mutating func receive(text: String, isFinal: Bool, at now: TimeInterval, listeningForWakePhrase: Bool) -> [Event] {
         switch phase {
@@ -130,12 +154,13 @@ public struct UtteranceAssembler: Sendable {
                 return []
             }
             var capture = Capture(trigger: .wakePhrase, startedAt: now, lastActivityAt: now)
-            if isFinal { capture.finalized = candidate } else { capture.volatile = candidate }
+            capture.lead = tail.joined(separator: " ")
+            if isFinal { capture.finalized = text } else { capture.volatile = text }
             var events: [Event] = [.wakePhraseDetected]
-            let command = commandText(for: capture)
-            if !command.isEmpty {
-                capture.lastCommand = command
-                events.append(.captureUpdated(command))
+            let heard = heardText(for: capture)
+            if !heard.isEmpty {
+                capture.lastHeard = heard
+                events.append(.captureUpdated(heard))
             }
             phase = .capturing(capture)
             return events
@@ -149,11 +174,11 @@ public struct UtteranceAssembler: Sendable {
                 capture.volatile = text
             }
             if capture.raw != before { capture.lastActivityAt = now }
-            let command = commandText(for: capture)
+            let heard = heardText(for: capture)
             var events: [Event] = []
-            if command != capture.lastCommand {
-                capture.lastCommand = command
-                events.append(.captureUpdated(command))
+            if heard != capture.lastHeard {
+                capture.lastHeard = heard
+                events.append(.captureUpdated(heard))
             }
             phase = .capturing(capture)
             return events
@@ -167,7 +192,8 @@ public struct UtteranceAssembler: Sendable {
         let elapsed = now - capture.startedAt
 
         if let releasedAt = capture.releasedAt {
-            if command.isEmpty {
+            // Текста нет совсем — ждём его подольше (модель могла ещё не выдать результат).
+            if TextNormalizer.words(capture.raw).isEmpty {
                 return now - releasedAt >= max(timing.releaseGrace, timing.releaseWaitWithoutText) ? finish(capture) : []
             }
             return now - max(releasedAt, capture.lastActivityAt) >= timing.releaseGrace ? finish(capture) : []
@@ -179,21 +205,44 @@ public struct UtteranceAssembler: Sendable {
         case .pushToTalkHold:
             return []
         case .wakePhrase, .manualTap:
-            if !command.isEmpty, now - capture.lastActivityAt >= timing.endOfSpeechSilence {
-                return finish(capture)
+            if !command.isEmpty {
+                return now - capture.lastActivityAt >= timing.endOfSpeechSilence ? finish(capture) : []
             }
-            if command.isEmpty, elapsed >= timing.followUpTimeout {
-                return finish(capture)
+            if isAddressOnly(capture) {
+                let pause = max(timing.addressOnlyPause, timing.endOfSpeechSilence + 0.5)
+                return now - capture.lastActivityAt >= pause ? finish(capture) : []
             }
-            return []
+            return elapsed >= timing.followUpTimeout ? finish(capture) : []
         }
     }
 
     private mutating func finish(_ capture: Capture) -> [Event] {
         phase = .waiting(tail: [])
         let command = commandText(for: capture)
-        guard !command.isEmpty else { return [.captureEnded] }
-        return [.commandReady(Utterance(text: command, locale: locale), capture.trigger)]
+        if !command.isEmpty {
+            return [.commandReady(Utterance(text: command, locale: locale), capture.trigger)]
+        }
+        if isAddressOnly(capture) {
+            let phrase = TextNormalizer.normalize(capture.raw)
+            return [.addressedOnly(Utterance(text: phrase, locale: locale), capture.trigger)]
+        }
+        return [.captureEnded]
+    }
+
+    /// Пользователь сам начал говорить (клавиша или кнопка) и сказал только обращение.
+    private func isAddressOnly(_ capture: Capture) -> Bool {
+        guard capture.trigger != .wakePhrase else { return false }
+        return commandText(for: capture).isEmpty && !TextNormalizer.words(capture.raw).isEmpty
+    }
+
+    /// Что показать на экране: всё услышанное, как распознано.
+    private func heardText(for capture: Capture) -> String {
+        switch capture.trigger {
+        case .wakePhrase:
+            matcher.heardText(fromWakePhraseIn: capture.raw)
+        case .pushToTalkHold, .manualTap:
+            capture.raw
+        }
     }
 
     private func commandText(for capture: Capture) -> String {

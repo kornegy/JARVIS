@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import JarvisAssistant
 import JarvisCore
@@ -34,16 +35,35 @@ struct StatusHeader: View {
     }
 }
 
-/// Честный индикатор микрофона: показывает, идёт ли захват звука на самом деле.
+/// Честный индикатор микрофона: показывает, идёт ли захват звука на самом деле,
+/// и уровень сигнала — видно, слышит ли JARVIS микрофон вообще.
 struct MicrophoneIndicator: View {
     let isCapturing: Bool
+    var level: Float?
 
     var body: some View {
         let title = isCapturing ? "Микрофон слушает — звук не сохраняется" : "Микрофон не используется"
-        Label(title, systemImage: isCapturing ? "mic.fill" : "mic.slash")
-            .font(.callout)
-            .foregroundStyle(isCapturing ? Color.orange : Color.secondary)
-            .accessibilityIdentifier("microphone.indicator")
+        HStack(spacing: 8) {
+            Label(title, systemImage: isCapturing ? "mic.fill" : "mic.slash")
+                .font(.callout)
+                .foregroundStyle(isCapturing ? Color.orange : Color.secondary)
+                .accessibilityIdentifier("microphone.indicator")
+            if isCapturing, let level {
+                ProgressView(value: Self.meterValue(level))
+                    .progressViewStyle(.linear)
+                    .frame(width: 60)
+                    .help("Уровень сигнала микрофона (до усиления)")
+                    .accessibilityLabel(Text("Уровень микрофона"))
+                Text("\(Int(level.rounded())) дБ")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// −60 dBFS и тише → 0, 0 dBFS → 1.
+    static func meterValue(_ decibels: Float) -> Double {
+        Double(min(max((decibels + 60) / 60, 0), 1))
     }
 }
 
@@ -188,6 +208,7 @@ struct ConversationView: View {
 struct ProblemBanner: View {
     let model: AppModel
     let problem: AssistantProblem
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -207,6 +228,12 @@ struct ProblemBanner: View {
                         Task { await model.downloadSpeechModel() }
                     }
                     .disabled(model.assistant.isDownloadingModel)
+                case .microphoneSilent:
+                    Button("Звук в macOS") { model.openSoundSettings() }
+                    Button("Настройки JARVIS") {
+                        NSApp.activate()
+                        openSettings()
+                    }
                 case .speechModelDownloading, .languageNotSupported, .microphoneUnavailable:
                     EmptyView()
                 }
@@ -232,7 +259,8 @@ struct CommandField: View {
                 text = ""
                 model.submitCommand(command)
             }
-            .disabled(!model.assistant.machine.canHandle(.commandReceived))
+            // Пока JARVIS ждёт подтверждения, сюда можно написать «да» или «нет».
+            .disabled(!model.assistant.machine.canHandle(.commandReceived) && model.assistant.state != .awaitingConfirmation)
             .accessibilityIdentifier("command.field")
     }
 }

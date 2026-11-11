@@ -1,6 +1,31 @@
 import Foundation
 import JarvisCore
+import JarvisTools
+import Synchronization
 @testable import JarvisAssistant
+
+/// Подделка «закрыть приложение» (категория 2): считает, сколько раз действие выполнено.
+final class FakeQuitTool: Tool {
+    let descriptor = ToolDescriptor(
+        name: StandardTools.quitApp,
+        summary: "Закрыть приложение",
+        parameters: [ParameterSpec(name: "name", summary: "Имя", type: .text(maxLength: 100))],
+        risk: .consequential,
+        effect: .local
+    )
+    private let runs = Mutex(0)
+
+    var runCount: Int { runs.withLock { $0 } }
+
+    func describe(_ arguments: ValidatedArguments, context: ToolContext) async throws -> String {
+        "закрыть «\(arguments.text("name") ?? "")»"
+    }
+
+    func run(_ arguments: ValidatedArguments, context: ToolContext) async throws -> ToolOutcome {
+        runs.withLock { $0 += 1 }
+        return ToolOutcome(message: "Safari")
+    }
+}
 
 /// Подделка распознавания: тест сам «произносит» фразы через `say`.
 @MainActor
