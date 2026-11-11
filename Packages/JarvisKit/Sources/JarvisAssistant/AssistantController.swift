@@ -148,6 +148,8 @@ public final class AssistantController {
         if let pending {
             _ = await processor.decline(pending, reason: .cancelled, context: commandContext())
         }
+        // Найденные файлы («открой его») после выключения не помнятся.
+        processor.forgetContext()
         await record("assistant.disable", source: source)
     }
 

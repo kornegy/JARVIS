@@ -21,6 +21,9 @@ public struct PendingAction: Sendable, Equatable {
     /// `false` — подтвердить можно только кнопкой или клавишей (категория 3).
     public let allowsVoiceConfirmation: Bool
     public let isDangerous: Bool
+    /// Имена файлов, которых касается действие, — окно подтверждения показывает их все
+    /// (docs/Security.md §5: «какие файлы, куда»).
+    public let items: [String]
     let call: PreparedToolCall
     let intent: Intent
     let source: CommandSource
@@ -97,29 +100,56 @@ public final class CommandProcessor {
     /// Шаг громкости для «громче» / «тише», проценты.
     public static let volumeStep = 10
 
+    /// Сколько файлов JARVIS запоминает из одного поиска («открой пятый»).
+    public static let listLimit = 20
+    /// Через сколько секунд «его» и «второй» забываются.
+    public static let recentFilesLifetime: TimeInterval = 600
+
     private let parser = RuleIntentParser()
     private let registry: ToolRegistry
     private let validator: ArgumentValidator
     private let auditLog: AuditLog
+    private let permissions: (any PermissionChecking)?
+    private let now: () -> Date
     private var composer: ResponseComposer
     private let log = JarvisLogger(category: "commands")
+
+    /// Файлы из последнего ответа — для «открой его», «открой второй». Только в памяти.
+    private var recentFiles: [String] = []
+    private var recentFilesUpdatedAt: Date?
+    /// Действие, которое ждёт выбора файла из списка («Какой из них?» → «второй»).
+    private var pendingChoice: FileAction?
 
     public init(
         registry: ToolRegistry,
         auditLog: AuditLog,
         validator: ArgumentValidator = ArgumentValidator(),
-        random: any RandomNumberGenerator = SystemRandomNumberGenerator()
+        permissions: (any PermissionChecking)? = nil,
+        random: any RandomNumberGenerator = SystemRandomNumberGenerator(),
+        now: @escaping () -> Date = { Date() }
     ) {
         self.registry = registry
         self.auditLog = auditLog
         self.validator = validator
+        self.permissions = permissions
+        self.now = now
         self.composer = ResponseComposer(random: random)
+    }
+
+    /// Забыть найденные файлы и незаконченный выбор (ассистент выключен).
+    public func forgetContext() {
+        recentFiles = []
+        recentFilesUpdatedAt = nil
+        pendingChoice = nil
     }
 
     public func handle(_ utterance: Utterance, source: CommandSource, context: CommandContext) async -> CommandOutcome {
         configureComposer(context)
         let intent = parser.parse(utterance.text)
         log.info("Command interpreted", .token("parser", "rules"), .bool("recognized", intent != .unknown))
+        // Вопрос «какой из них?» действует только до следующей команды.
+        let choice = pendingChoice
+        pendingChoice = nil
 
         switch intent {
         case .currentTime:
@@ -156,6 +186,28 @@ public final class CommandProcessor {
             return await perform(StandardTools.changeVolume, ["delta": .integer(delta)], intent: intent, source: source, context: context)
         case .setMuted(let muted):
             return await perform(StandardTools.setMuted, ["muted": .boolean(muted)], intent: intent, source: source, context: context)
+        case .findFiles(let query):
+            guard query.isSpecific else { return CommandOutcome(intent: intent, reply: composer.text(for: .needFileDescription)) }
+            return await perform(StandardTools.findFiles, Self.findArguments(query, limit: Self.listLimit), intent: intent, source: source, context: context)
+        case .openFile(let target):
+            return await fileAction(.open, target, intent: intent, source: source, context: context)
+        case .revealFile(let target):
+            return await fileAction(.reveal, target, intent: intent, source: source, context: context)
+        case .moveFile(let target, let destination):
+            return await fileAction(.move(destination), target, intent: intent, source: source, context: context)
+        case .renameFile(let target, let newName):
+            return await fileAction(.rename(newName), target, intent: intent, source: source, context: context)
+        case .trashFile(let target):
+            return await fileAction(.trash, target, intent: intent, source: source, context: context)
+        case .chooseItem(let index):
+            // «Второй» без вопроса, но после списка — открыть.
+            guard let action = choice ?? (currentRecentFiles().isEmpty ? nil : .open) else {
+                return CommandOutcome(intent: intent, reply: composer.text(for: .noRecentFiles))
+            }
+            let target = FileTarget.previous(index)
+            return await fileAction(action, target, intent: action.intent(target), source: source, context: context)
+        case .undo:
+            return await perform(StandardTools.undo, intent: intent, source: source, context: context)
         case .disableAssistant:
             return CommandOutcome(intent: intent, reply: composer.reply(to: intent), directive: .disableAssistant)
         case .pauseMicrophone:
@@ -206,9 +258,11 @@ public final class CommandProcessor {
         _ arguments: [String: ArgumentValue] = [:],
         intent: Intent,
         source: CommandSource,
-        context: CommandContext
+        context: CommandContext,
+        affectedItemCount: Int = 1
     ) async -> CommandOutcome {
-        finish(await attempt(name, arguments, intent: intent, source: source, context: context), intent: intent)
+        let result = await attempt(name, arguments, intent: intent, source: source, context: context, affectedItemCount: affectedItemCount)
+        return finish(result, intent: intent)
     }
 
     private func attempt(
@@ -216,7 +270,8 @@ public final class CommandProcessor {
         _ arguments: [String: ArgumentValue],
         intent: Intent,
         source: CommandSource,
-        context: CommandContext
+        context: CommandContext,
+        affectedItemCount: Int = 1
     ) async -> Attempt {
         let prepared: PreparedToolCall
         do {
@@ -227,7 +282,13 @@ public final class CommandProcessor {
         }
 
         let descriptor = prepared.descriptor
-        let requirement = context.confirmationPolicy.requirement(for: descriptor, context: PlanContext(source: source))
+        // Нужное разрешение точно не выдано — не спрашиваем и не выполняем, а говорим, где его дать.
+        if let missing = deniedPermission(for: descriptor) {
+            return .failed(.permissionDenied(missing), descriptor.name)
+        }
+        // Массовая операция (больше 10 файлов) политика поднимет до категории 3.
+        let plan = PlanContext(source: source, affectedItemCount: affectedItemCount)
+        let requirement = context.confirmationPolicy.requirement(for: descriptor, context: plan)
         guard case .required(let request) = requirement else {
             return await execute(prepared, intent: intent, source: source, context: context, confirmed: false)
         }
@@ -248,6 +309,7 @@ public final class CommandProcessor {
             summary: summary,
             allowsVoiceConfirmation: request.allowsVoiceConfirmation,
             isDangerous: request.reasons.contains(.dangerousAction) || request.reasons.contains(.bulkOperation),
+            items: Self.itemNames(prepared.arguments),
             call: prepared,
             intent: intent,
             source: source
@@ -270,6 +332,7 @@ public final class CommandProcessor {
         do {
             let outcome = try await prepared.tool.run(prepared.arguments, context: ToolContext(source: source, locale: context.locale))
             await record(descriptor, source: source, outcome: .succeeded, confirmationRequired: confirmed, detail: outcome.auditDetail)
+            if let files = outcome.files { remember(files) }
             return .done(CommandOutcome(
                 intent: intent,
                 reply: composer.reply(to: intent, value: outcome.message),
@@ -295,14 +358,305 @@ public final class CommandProcessor {
     }
 
     static func reply(for failure: ToolFailure, tool: ToolName) -> ActionReply {
+        let isFileTool = StandardTools.fileTools.contains(tool)
         switch failure {
         case .notFound(let target):
-            tool == StandardTools.openWebsite ? .siteNotFound(target) : .appNotFound(target)
-        case .notRunning(let target): .notRunning(target)
-        case .protectedTarget(let target): .protectedApp(target)
-        case .actionFailed(let target): .actionFailed(target)
-        case .unsupported: .unsupported
+            if tool == StandardTools.openWebsite { return .siteNotFound(target) }
+            return isFileTool ? .fileNotFound(target) : .appNotFound(target)
+        case .notRunning(let target): return .notRunning(target)
+        case .protectedTarget(let target): return isFileTool ? .protectedFile(target) : .protectedApp(target)
+        case .actionFailed(let target): return isFileTool ? .fileActionFailed(target) : .actionFailed(target)
+        case .unsupported: return .unsupported
+        case .alreadyExists(let target): return .alreadyExists(target)
+        case .accessDenied(let target): return .noFolderAccess(target)
+        case .permissionDenied(let kind): return .permissionNeeded(pane(for: kind))
+        case .unsafeToOpen(let target): return .unsafeToOpen(target)
+        case .nothingToUndo: return .nothingToUndo
         }
+    }
+
+    static func pane(for kind: PermissionKind) -> SettingsPane {
+        switch kind {
+        case .microphone: .microphone
+        case .speechRecognition: .speechRecognition
+        case .accessibility: .accessibility
+        case .appleEvents: .automation
+        case .filesAndFolders: .filesAndFolders
+        case .calendars, .reminders, .notifications, .location: .privacy
+        }
+    }
+
+    private func deniedPermission(for descriptor: ToolDescriptor) -> PermissionKind? {
+        guard let permissions else { return nil }
+        return descriptor.requiredPermissions
+            .sorted { $0.rawValue < $1.rawValue }
+            .first { permissions.status(for: $0) == .denied }
+    }
+
+    // MARK: - Файлы
+
+    /// Что сделать с файлом, когда станет ясно, с каким.
+    enum FileAction: Equatable {
+        case open
+        case reveal
+        case move(FolderTarget?)
+        case rename(String?)
+        case trash
+
+        func intent(_ target: FileTarget) -> Intent {
+            switch self {
+            case .open: .openFile(target)
+            case .reveal: .revealFile(target)
+            case .move(let destination): .moveFile(target, destination)
+            case .rename(let name): .renameFile(target, name)
+            case .trash: .trashFile(target)
+            }
+        }
+
+        /// Действие только над одним файлом.
+        var needsSingleFile: Bool {
+            switch self {
+            case .open, .rename: true
+            case .reveal, .move, .trash: false
+            }
+        }
+    }
+
+    private enum Resolution {
+        case files([String])
+        case reply(CommandOutcome)
+    }
+
+    /// Файловая команда: понять, о каких файлах речь (найти, взять из прошлого ответа),
+    /// и вызвать инструмент с точными путями. После подтверждения выполняются ровно эти пути.
+    private func fileAction(
+        _ action: FileAction,
+        _ target: FileTarget,
+        intent: Intent,
+        source: CommandSource,
+        context: CommandContext
+    ) async -> CommandOutcome {
+        // Сначала — чего не хватает в самой команде, чтобы не искать зря.
+        if case .move(.none) = action { return CommandOutcome(intent: intent, reply: composer.text(for: .needDestination)) }
+        if case .rename(.none) = action { return CommandOutcome(intent: intent, reply: composer.text(for: .needNewName)) }
+
+        let files: [String]
+        switch await resolve(target, for: action, intent: intent, source: source, context: context) {
+        case .files(let found): files = found
+        case .reply(let outcome): return outcome
+        }
+        guard let first = files.first else { return CommandOutcome(intent: intent, reply: composer.text(for: .noRecentFiles)) }
+        if action.needsSingleFile, files.count > 1 {
+            return CommandOutcome(intent: intent, reply: composer.text(for: .onlyOneFile))
+        }
+        let pathList = ArgumentValue.list(files.map { .string($0) })
+
+        switch action {
+        case .open:
+            return await perform(StandardTools.openFile, ["path": .string(first)], intent: intent, source: source, context: context)
+        case .reveal:
+            return await perform(StandardTools.revealFiles, ["paths": pathList], intent: intent, source: source, context: context)
+        case .move(let destination?):
+            let folder: String
+            switch await resolveFolder(destination, intent: intent, source: source, context: context) {
+            case .files(let found):
+                guard let path = found.first else { return CommandOutcome(intent: intent, reply: composer.text(for: .failure)) }
+                folder = path
+            case .reply(let outcome):
+                return outcome
+            }
+            return await perform(
+                StandardTools.moveFiles,
+                ["paths": pathList, "destination": .string(folder)],
+                intent: intent,
+                source: source,
+                context: context,
+                affectedItemCount: files.count
+            )
+        case .rename(let newName?):
+            return await perform(
+                StandardTools.renameFile,
+                ["path": .string(first), "newName": .string(String(newName.prefix(200)))],
+                intent: intent,
+                source: source,
+                context: context
+            )
+        case .trash:
+            return await perform(StandardTools.trashFiles, ["paths": pathList], intent: intent, source: source, context: context, affectedItemCount: files.count)
+        case .move(.none), .rename(.none):
+            return CommandOutcome(intent: intent, reply: composer.text(for: .failure))
+        }
+    }
+
+    private func resolve(
+        _ target: FileTarget,
+        for action: FileAction,
+        intent: Intent,
+        source: CommandSource,
+        context: CommandContext
+    ) async -> Resolution {
+        switch target {
+        case .location(let location):
+            return .files([location.path(inHome: validator.homeDirectory)])
+
+        case .previous(let index):
+            let recent = currentRecentFiles()
+            guard !recent.isEmpty else { return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .noRecentFiles))) }
+            guard recent.indices.contains(index) else {
+                return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .noSuchItem(available: recent.count))))
+            }
+            return .files([recent[index]])
+
+        case .previousAll:
+            let recent = currentRecentFiles()
+            guard !recent.isEmpty else { return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .noRecentFiles))) }
+            return .files(recent)
+
+        case .query(let query):
+            guard Self.canSearch(query) else {
+                return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .needFileDescription)))
+            }
+            let found = await find(query, limit: Self.listLimit, intent: intent, source: source, context: context)
+            guard case .files(let paths) = found, let first = paths.first else { return found }
+            remember(paths)
+            if paths.count == 1 || query.latest { return .files([first]) }
+            // Несколько подходящих, а действие над одним файлом — спрашиваем, какой.
+            pendingChoice = action
+            let names = paths.prefix(3).map(Self.displayName)
+            return .reply(CommandOutcome(
+                intent: intent,
+                reply: composer.text(for: .whichFile(names: Array(names), total: paths.count)),
+                executedActions: [StandardTools.findFiles]
+            ))
+
+        case .all(let query):
+            guard Self.canSearch(query) else {
+                return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .needFileDescription)))
+            }
+            let limit = StandardTools.maxFilesPerAction
+            let found = await find(query, limit: limit + 1, intent: intent, source: source, context: context)
+            guard case .files(let paths) = found else { return found }
+            guard paths.count <= limit else {
+                return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .tooManyFiles(limit: limit)), executedActions: [StandardTools.findFiles]))
+            }
+            remember(paths)
+            return .files(paths)
+        }
+    }
+
+    /// Папка назначения: стандартная — по пути, остальные — поиском папки по названию.
+    private func resolveFolder(
+        _ destination: FolderTarget,
+        intent: Intent,
+        source: CommandSource,
+        context: CommandContext
+    ) async -> Resolution {
+        switch destination {
+        case .location(let location):
+            return .files([location.path(inHome: validator.homeDirectory)])
+        case .named(let name):
+            return await find(
+                FileQuery(name: name, kind: .folder),
+                limit: 5,
+                intent: intent,
+                source: source,
+                context: context,
+                notFound: .folderNotFound(name)
+            )
+        }
+    }
+
+    /// Поиск как шаг другой команды: результат — пути, а не ответ пользователю.
+    private func find(
+        _ query: FileQuery,
+        limit: Int,
+        intent: Intent,
+        source: CommandSource,
+        context: CommandContext,
+        notFound: ActionReply? = nil
+    ) async -> Resolution {
+        let prepared: PreparedToolCall
+        do {
+            let call = ToolCall(toolName: StandardTools.findFiles.rawValue, arguments: Self.findArguments(query, limit: limit))
+            prepared = try registry.prepare(call, validator: validator)
+        } catch {
+            log.error("Tool preparation failed", .error(error))
+            return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .failure)))
+        }
+        let descriptor = prepared.descriptor
+        if let missing = deniedPermission(for: descriptor) {
+            return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .permissionNeeded(Self.pane(for: missing)))))
+        }
+        do {
+            let outcome = try await prepared.tool.run(prepared.arguments, context: ToolContext(source: source, locale: context.locale))
+            await record(descriptor, source: source, outcome: .succeeded, detail: outcome.auditDetail)
+            let paths = outcome.files ?? []
+            guard !paths.isEmpty else {
+                return .reply(CommandOutcome(intent: intent, reply: composer.text(for: notFound ?? .fileNotFound(query.name ?? ""))))
+            }
+            return .files(paths)
+        } catch let failure as ToolFailure {
+            await record(descriptor, source: source, outcome: .failed)
+            let reply: ActionReply = if case .notFound = failure, let notFound {
+                notFound
+            } else {
+                Self.reply(for: failure, tool: descriptor.name)
+            }
+            return .reply(CommandOutcome(intent: intent, reply: composer.text(for: reply), executedActions: [descriptor.name]))
+        } catch {
+            log.error("Tool failed", .error(error))
+            await record(descriptor, source: source, outcome: .failed)
+            return .reply(CommandOutcome(intent: intent, reply: composer.text(for: .failure)))
+        }
+    }
+
+    /// Достаточно ли описания, чтобы искать: «открой папку» без названия — нет.
+    static func canSearch(_ query: FileQuery) -> Bool {
+        guard query.isSpecific else { return false }
+        if query.kind == .folder, query.name == nil, query.location == nil, !query.latest, query.period == nil { return false }
+        return true
+    }
+
+    static func findArguments(_ query: FileQuery, limit: Int) -> [String: ArgumentValue] {
+        var arguments: [String: ArgumentValue] = ["limit": .integer(limit)]
+        if let name = query.name?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
+            arguments["name"] = .string(String(name.prefix(100)))
+        }
+        if let kind = query.kind { arguments["kind"] = .string(kind.rawValue) }
+        if let location = query.location { arguments["location"] = .string(location.rawValue) }
+        if let period = query.period { arguments["period"] = .string(period.rawValue) }
+        if query.latest { arguments["latest"] = .boolean(true) }
+        return arguments
+    }
+
+    /// Имена файлов из аргументов — для окна подтверждения.
+    static func itemNames(_ arguments: ValidatedArguments) -> [String] {
+        var paths: [String] = []
+        if let path = arguments.text("path") { paths.append(path) }
+        for value in arguments.list("paths") ?? [] {
+            if case .string(let path) = value { paths.append(path) }
+        }
+        return paths.map(displayName)
+    }
+
+    /// Имя файла для ответа: без управляющих символов и не длиннее 80 знаков.
+    static func displayName(_ path: String) -> String {
+        let name = URL(filePath: path).lastPathComponent
+        let cleaned = String(String.UnicodeScalarView(name.unicodeScalars.map { scalar in
+            let category = scalar.properties.generalCategory
+            return category == .control || category == .format ? " " : scalar
+        }))
+        return cleaned.count > 80 ? String(cleaned.prefix(79)) + "…" : cleaned
+    }
+
+    private func remember(_ files: [String]) {
+        recentFiles = files
+        recentFilesUpdatedAt = files.isEmpty ? nil : now()
+    }
+
+    private func currentRecentFiles() -> [String] {
+        guard let updated = recentFilesUpdatedAt, now().timeIntervalSince(updated) < Self.recentFilesLifetime else { return [] }
+        return recentFiles
     }
 
     private func configureComposer(_ context: CommandContext) {

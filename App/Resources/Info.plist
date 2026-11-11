@@ -32,6 +32,12 @@
 	<string>JARVIS закрывает приложения по вашей команде и только после подтверждения. macOS спросит разрешение отдельно для каждого приложения.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>JARVIS распознаёт речь на этом Mac (локальная модель Apple). Звук и текст команд не сохраняются и не передаются.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>JARVIS находит, открывает и перемещает файлы на рабочем столе по вашей команде. Содержимое файлов не читается и никуда не передаётся.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>JARVIS находит, открывает и перемещает файлы в «Документах» по вашей команде. Содержимое файлов не читается и никуда не передаётся.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>JARVIS находит скачанные файлы («последний скачанный PDF») и перемещает их по вашей команде. Содержимое файлов не читается и никуда не передаётся.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 kornegy</string>
 </dict>

@@ -100,11 +100,21 @@ public struct ToolOutcome: Sendable {
     public let untrustedContent: UntrustedText?
     /// Описание цели для подробного режима журнала.
     public let auditDetail: AuditDetail?
+    /// Пути к файлам, о которых результат (найденные, перемещённые) — чтобы потом можно было
+    /// сказать «открой его» или «открой второй». `nil` — список не меняется, пустой — забыть.
+    /// Живут только в памяти.
+    public let files: [String]?
 
-    public init(message: String, untrustedContent: UntrustedText? = nil, auditDetail: AuditDetail? = nil) {
+    public init(
+        message: String,
+        untrustedContent: UntrustedText? = nil,
+        auditDetail: AuditDetail? = nil,
+        files: [String]? = nil
+    ) {
         self.message = message
         self.untrustedContent = untrustedContent
         self.auditDetail = auditDetail
+        self.files = files
     }
 }
 
@@ -146,4 +156,33 @@ public enum ToolFailure: Error, Sendable, Equatable {
     case actionFailed(target: String)
     /// Устройство или система не поддерживает действие.
     case unsupported
+    /// Там уже есть объект с таким именем — ничего не перезаписывается.
+    case alreadyExists(target: String)
+    /// macOS не дала доступ к папке (разрешение «Файлы и папки»).
+    case accessDenied(target: String)
+    /// Нет системного разрешения, которое нужно инструменту.
+    case permissionDenied(PermissionKind)
+    /// Файл запускает программу (скрипт, установщик) — открывать его JARVIS не будет.
+    case unsafeToOpen(target: String)
+    /// Отменять нечего.
+    case nothingToUndo
+}
+
+/// Состояние системного разрешения, как его видит JARVIS.
+public enum PermissionStatus: Sendable, Equatable {
+    case granted
+    case denied
+    /// macOS ещё не спрашивала.
+    case notDetermined
+    /// Узнать заранее нельзя: macOS спросит при первом обращении (папки, автоматизация).
+    case unknown
+}
+
+/// Проверка разрешений перед выполнением инструмента (docs/Security.md §4).
+///
+/// Исполнитель не выполняет инструмент, если нужное ему разрешение точно не выдано, —
+/// и говорит пользователю, где его дать. Обходить отказ JARVIS не пытается.
+@MainActor
+public protocol PermissionChecking: AnyObject {
+    func status(for kind: PermissionKind) -> PermissionStatus
 }

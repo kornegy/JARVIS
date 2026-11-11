@@ -19,6 +19,7 @@ final class ConfirmationPanelController: NSObject, NSWindowDelegate {
         declineOnClose = onDecline
         let view = ConfirmationView(
             summary: pending.summary,
+            items: pending.items,
             allowsVoice: pending.allowsVoiceConfirmation,
             isDangerous: pending.isDangerous,
             onConfirm: { [weak self] in
@@ -63,7 +64,12 @@ final class ConfirmationPanelController: NSObject, NSWindowDelegate {
 }
 
 struct ConfirmationView: View {
+    /// Сколько имён файлов показать в списке (остальные — «и ещё N»).
+    static let visibleItems = 12
+
     let summary: String
+    /// Файлы, которых касается действие, — все по именам.
+    let items: [String]
     let allowsVoice: Bool
     let isDangerous: Bool
     let onConfirm: () -> Void
@@ -80,6 +86,25 @@ struct ConfirmationView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("confirmation.summary")
             }
+            if items.count > 1 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(items.prefix(Self.visibleItems).enumerated()), id: \.offset) { _, name in
+                            Label(name, systemImage: "doc")
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        if items.count > Self.visibleItems {
+                            Text("…и ещё \(items.count - Self.visibleItems)")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.callout)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 180)
+                .accessibilityIdentifier("confirmation.items")
+            }
             Text(hint)
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -95,7 +120,7 @@ struct ConfirmationView: View {
             }
         }
         .padding(20)
-        .frame(width: 380)
+        .frame(width: 400)
     }
 
     /// «закрыть «Safari»» → «Закрыть «Safari»?»

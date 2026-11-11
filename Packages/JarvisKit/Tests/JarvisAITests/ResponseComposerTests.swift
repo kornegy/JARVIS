@@ -51,7 +51,8 @@ struct ResponseComposerTests {
         var russian = composer(Personality(humor: 0, verbosity: 0.5, formality: 0))
         #expect(russian.reply(to: .notYetSupported(.mail)) == "Работать с почтой я научусь в следующей версии.")
         var english = composer(Personality(humor: 0, verbosity: 0.5, formality: 0), .english)
-        #expect(english.reply(to: .notYetSupported(.files)) == "I'll learn to work with files in the next version.")
+        #expect(english.reply(to: .notYetSupported(.files)) == "I'll learn to create and copy files in the next version.")
+        #expect(russian.reply(to: .notYetSupported(.windows)) == "Управлять окнами я научусь в следующей версии.")
     }
 
     @Test("У каждого намерения есть ответ на обоих языках, кроме пустого")
@@ -60,7 +61,9 @@ struct ResponseComposerTests {
             .greeting, .attention, .thanks, .capabilities, .cancel, .currentTime, .currentDate, .disableAssistant,
             .pauseMicrophone, .setPrivacyMode(true), .setPrivacyMode(false), .notYetSupported(.multiStep), .unknown,
             .openApp("x"), .quitApp("x"), .openWebsite("x"), .webSearch("x"), .setVolume(5), .changeVolume(.up),
-            .setMuted(true), .setMuted(false),
+            .setMuted(true), .setMuted(false), .findFiles(FileQuery(kind: .pdf)), .openFile(.previous(0)),
+            .revealFile(.previous(0)), .moveFile(.previous(0), .location(.documents)), .renameFile(.previous(0), "x"),
+            .trashFile(.previous(0)), .chooseItem(1), .undo, .notYetSupported(.windows), .notYetSupported(.files),
         ]
         for language in [ResponseLanguage.russian, .english] {
             var replies = composer(Personality(), language)
@@ -87,12 +90,23 @@ struct ResponseComposerTests {
         let all: [ActionReply] = [
             .appNotFound("X"), .siteNotFound("X"), .notRunning("X"), .protectedApp("X"), .actionFailed("X"), .unsupported,
             .confirmationQuestion("X"), .confirmationRequiredPhysically("X"), .declined, .timedOut,
-            .answerNotUnderstood, .failure,
+            .answerNotUnderstood, .failure, .fileNotFound("X"), .fileNotFound(""), .folderNotFound("X"), .protectedFile("X"),
+            .unsafeToOpen("X"), .fileActionFailed("X"), .alreadyExists("X"), .noFolderAccess("X"), .permissionNeeded(.filesAndFolders),
+            .nothingToUndo, .noRecentFiles, .noSuchItem(available: 2), .whichFile(names: ["a", "b"], total: 5), .needFileDescription,
+            .needDestination, .needNewName, .tooManyFiles(limit: 100), .onlyOneFile,
         ]
         for reply in all {
             #expect(!russian.text(for: reply).isEmpty)
             #expect(!english.text(for: reply).isEmpty)
         }
+        // Вопрос «какой из них?» перечисляет файлы, а лишнее — числом.
+        #expect(
+            russian.text(for: .whichFile(names: ["a.pdf", "b.pdf", "c.pdf"], total: 5))
+                == "Нашёл 5 файлов: «a.pdf», «b.pdf» и «c.pdf» (и ещё 2). Какой из них? Скажи «первый», «второй»…"
+        )
+        #expect(russian.text(for: .noSuchItem(available: 3)) == "В списке только 3 файла.")
+        // Вопрос подтверждения для файлов тоже без «да» и «нет».
+        #expect(ConfirmationAnswer.parse(russian.text(for: .confirmationQuestion("переместить в Корзину «отчёт.pdf»"))) == nil)
     }
 
     @Test("Язык ответа следует за локалью")

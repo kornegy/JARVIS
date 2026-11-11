@@ -56,19 +56,16 @@ struct RuleIntentParserTests {
 
     @Test("Примеры из ТЗ узнаются, даже если пока не поддержаны", arguments: [
         ("открой почту и проверь непрочитанные сообщения", Feature.mail),
-        ("Найди последний PDF, который я скачал", Feature.files),
         ("Открой Rider и продолжи работу над моим проектом", Feature.multiStep),
-        ("Найди файл с названием диплом", Feature.files),
         ("Создай папку для нового проекта", Feature.files),
         ("Закрой ненужные приложения", Feature.multiStep),
         ("Напомни мне завтра продолжить изучение C++", Feature.reminders),
         ("Что у меня сегодня запланировано?", Feature.calendar),
         ("Сделай краткое содержание непрочитанных писем", Feature.mail),
-        ("Найди все файлы, которые я изменял за последние три дня", Feature.files),
         ("Запусти музыку и открой браузер", Feature.media),
-        ("открой файл отчёт", Feature.files),
         ("найди письмо от Пети", Feature.mail),
         ("сделай ярче", Feature.system),
+        ("перемести окно влево", Feature.windows),
     ])
     func futureFeatures(text: String, feature: Feature) {
         #expect(parser.parse(text) == .notYetSupported(feature))
